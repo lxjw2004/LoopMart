@@ -1,0 +1,9 @@
+# Web / Admin implementation
+
+Clients: `apps/web` (3000), `apps/admin` (3004); shared React forms, request helpers and styling under `packages/ui`, bilingual labels under `packages/i18n`. Both use same-origin Next rewrites to local API 3002 and auth 3001 and standalone production output.
+
+Implemented real-API navigation and forms for listings, filters, details, posting/editing, separate local text drafts, favorites, profile and account actions; conversations, unread counts, active read updates, SSE requery and contextual references; four-target reports, contact and privacy. Admin exposes overview, users/create/role/ban/password/reset, item/ride CRUD, reports/review, conversations, community messages, contact records, settings and audit. Admin writes require an entered reason and explicit confirmation. No media, payment or demo data.
+
+Validation: both client strict TypeScript checks pass (`npx tsc --noEmit -p apps/web/tsconfig.json` and admin equivalent). Two focused request-helper tests pass (`npx tsx --test packages/ui/src/api.test.ts`), covering credentialed pagination and API/auth failure propagation. Production build attempted but is blocked by an incomplete Next dependency installation (`next` bin missing; direct module invocation lacks `../server/require-hook`). Browser/E2E QA is not yet performed. Current interface is an initial functional implementation and requires acceptance review against the detailed baseline; no claim of complete bm parity or browser-verified behavior is made.
+
+Known limitations requiring follow-up: conversation pagination depends on current server response (currently up to 500); admin detail rendering for miscellaneous resources uses labeled fields; audit/conversation date filter effectiveness depends on API filtering support. Full English/Chinese content and responsive keyboard behavior need browser verification.

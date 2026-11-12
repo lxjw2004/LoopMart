@@ -1,0 +1,4 @@
+export async function api(path: string, method = 'GET', body?: unknown) { const response = await fetch('/api/v1' + path, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); const result = await response.json(); if (!response.ok)
+    throw new Error(result.error?.message || result.message || String(response.status)); return result.nextCursor !== undefined ? result : result.data ?? result; }
+export async function auth(path: string, body: unknown) { const response = await fetch('/api/auth/' + path, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const result = await response.json(); if (!response.ok)
+    throw new Error(result.message || result.error?.message || String(response.status)); return result; }
