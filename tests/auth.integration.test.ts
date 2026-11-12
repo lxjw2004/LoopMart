@@ -61,3 +61,27 @@ test('PostgreSQL registration verifies email and blocks unverified login', {skip
   await pool.query('DELETE FROM "user" WHERE email=$1',[email]);
  } finally {await pool.query('DELETE FROM "user" WHERE email=ANY($1::text[])',[created]);await pool.end()}
 });
+
+test('managed provisioning rolls back with failed audit and password changes revoke sessions', {skip: !process.env.TEST_DATABASE_URL}, async () => {
+ const {createManagedAccount,setManagedPassword}=await import('../apps/auth/src/admin.js');
+ const pool=new Pool({connectionString:process.env.TEST_DATABASE_URL});
+ const client=await pool.connect();
+ const email=`managed-${Date.now()}@example.com`;
+ try {
+  await client.query('BEGIN');
+  const user=await createManagedAccount(client,{email,name:'Managed',password:'Managed-password-123!'});
+  assert.equal((await client.query('SELECT 1 FROM "user" WHERE id=$1',[user.id])).rowCount,1);
+  await assert.rejects(client.query("INSERT INTO audit(id,actor_id,action,reason) VALUES('not-a-uuid','missing','test','failure')"));
+  await client.query('ROLLBACK');
+  assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=$1',[email])).rowCount,0);
+  await client.query('BEGIN');
+  const active=await createManagedAccount(client,{email,name:'Managed',password:'Managed-password-123!'});
+  await client.query(`INSERT INTO session(id,token,"userId","expiresAt","createdAt","updatedAt") VALUES($1,$2,$3,now()+interval '1 day',now(),now())`,[`managed-session-${Date.now()}`,`managed-token-${Date.now()}`,active.id]);
+  await setManagedPassword(client,active.id,'Replacement-password-456!');
+  assert.equal((await client.query('SELECT 1 FROM session WHERE "userId"=$1',[active.id])).rowCount,0);
+  const {verifyPassword}=await import('better-auth/crypto');
+  const credential=(await client.query('SELECT password FROM account WHERE "userId"=$1',[active.id])).rows[0];
+  assert.equal(await verifyPassword({hash:credential.password,password:'Replacement-password-456!'}),true);
+  await client.query('ROLLBACK');
+ } finally {await client.query('ROLLBACK');client.release();await pool.end()}
+});

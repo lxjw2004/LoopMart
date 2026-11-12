@@ -43,7 +43,7 @@ export function createAuth(
       sendResetPassword: async ({ user, url }) =>
         send({
           to: user.email,
-          subject: "Reset your LoopMart password",
+          subject: "重置 LoopMart 密码 / Reset your LoopMart password",
           text: url,
         }),
     },
@@ -53,7 +53,7 @@ export function createAuth(
       sendVerificationEmail: async ({ user, url }) =>
         send({
           to: user.email,
-          subject: "Verify your LoopMart email",
+          subject: "验证 LoopMart 邮箱 / Verify your LoopMart email",
           text: url,
         }),
     },
