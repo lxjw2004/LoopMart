@@ -13,13 +13,21 @@
 
 - Web、Admin 严格 TypeScript 检查通过。
 - 两个 Next.js webpack 生产构建通过，包含类型检查、页面生成及 standalone 跟踪。
-- `npx tsx --test packages/ui/src/*.test.ts`：5 项通过，覆盖同源凭据与分页、错误传播、聊天分页边界去重、IANA 时区及夏令时缺口。
-- 真实 PostgreSQL 测试环境与 Chromium：登录、物品发布／详情／收藏、拼车发布、四类举报、联系提交、私聊引用与持久化回复、Admin 用户修改／创建／密码设置／封禁和解封、物品创建／编辑／删除／审核、举报审核、联系处理、设置和管理列表通过。
-- 390px Web 和 Admin 均通过横向溢出检查；英文切换通过。截图位于忽略目录 `.superpowers/e2e/`。测试不输出密码。
+- `npx tsx --test packages/ui/src/*.test.ts`：7 项通过，覆盖同源凭据与分页、错误传播、聊天分页边界去重、IANA 时区、夏令时缺口及美元小数的精确整数换算。
+- 真实 PostgreSQL 测试环境与 Chromium：登录、物品发布／详情／收藏、拼车发布、四类举报、联系提交、私聊引用、持久化回复及不重新打开页面的实时回复、Admin 用户修改／创建／密码设置／封禁和解封、物品创建／编辑／删除／审核、举报审核、联系处理、设置和管理列表通过。
+- 390px Web 和 Admin 均通过横向溢出检查；英文切换、公开资料实际发布列表和个人物品／拼车切换通过。美元输入、编辑显示和详情格式已切换到美元，API 仍传整数美分。截图位于忽略目录 `.superpowers/e2e/`。测试不输出密码。
 - 可复现脚本：`tests/browser/e2e.py`、`tests/browser/admin_crud.py`；浏览器路径使用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 或 Playwright 默认路径，身份来自仅本地测试文件 `.superpowers/e2e/users.json`。
 
-## 待完成验证
+## 剩余边界
 
-- 实时 SSE 的浏览器回复更新已复现异常，业务 API 正在排查；当前已确认重新打开会话可读到持久化回复，不能据此声称实时通过。
-- 最新公开资料列表／个人分类分页及移动筛选布局改动需要最终生产重建和浏览器回归。
 - SMTP 留空时无法完成真实邮箱投递链路；没有将接口入口或测试身份登录当作真实邮件投递成功。
+- 浏览器测试覆盖上述关键流程，不表示穷尽每种网络故障、历史数据量及浏览器组合。超量列表与聊天分页同时有真实 API 集成及客户端游标／去重测试支持。
+
+## 最终执行
+
+- `npx tsc --noEmit -p apps/web/tsconfig.json`、Admin 对应命令：通过。
+- `npm run build -w @loopmart/web`、`npm run build -w @loopmart/admin`：通过。
+- `npx tsx --test packages/ui/src/*.test.ts`：7 项通过。
+- 配置 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 后，`/tmp/loopmart-browser-venv/bin/python tests/browser/e2e.py`：退出 0，全部场景通过，三名测试身份浏览器均无异常。
+- 同一环境执行 `/tmp/loopmart-browser-venv/bin/python tests/browser/admin_crud.py`：退出 0，创建用户／设置密码／封禁解封／物品增改删／管理移动布局通过，无浏览器异常。
+- 最终截图：`.superpowers/e2e/web-mobile.png`、`admin-mobile.png`、`admin-desktop.png`。这些测试产物与身份文件保持忽略，不提交凭据。
