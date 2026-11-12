@@ -825,6 +825,16 @@ const controller = new AbortController();
         ).status,
         429,
       );
+      const eligibilityJob=crypto.randomUUID();await pool.query('INSERT INTO notification_jobs(id,payload) VALUES($1,$2)',[eligibilityJob,{userId:c.id,text:'Eligibility retry'}]);
+      try{
+        await pool.query('UPDATE "user" SET banned=true WHERE id=$1',[b.id]);await processNotificationJobs(pool);
+        assert.equal((await pool.query('SELECT count(*)::int n FROM messages WHERE client_id=$1',['notification:'+eligibilityJob])).rows[0].n,0);
+        let job=(await pool.query('SELECT * FROM notification_jobs WHERE id=$1',[eligibilityJob])).rows[0];assert.equal(job.completed_at,null);assert.equal(job.attempts,1);assert.ok(job.last_error);
+        await pool.query('UPDATE "user" SET banned=false WHERE id=$1',[b.id]);await pool.query("UPDATE memberships SET role='member' WHERE user_id=$1",[b.id]);await pool.query('UPDATE notification_jobs SET next_attempt_at=now() WHERE id=$1',[eligibilityJob]);await processNotificationJobs(pool);
+        assert.equal((await pool.query('SELECT count(*)::int n FROM messages WHERE client_id=$1',['notification:'+eligibilityJob])).rows[0].n,0);job=(await pool.query('SELECT * FROM notification_jobs WHERE id=$1',[eligibilityJob])).rows[0];assert.equal(job.attempts,2);assert.equal(job.completed_at,null);
+        await pool.query("UPDATE memberships SET role='admin' WHERE user_id=$1",[b.id]);await pool.query('UPDATE "user" SET banned=true WHERE id=$1',[c.id]);await pool.query('UPDATE notification_jobs SET next_attempt_at=now() WHERE id=$1',[eligibilityJob]);await processNotificationJobs(pool);await processNotificationJobs(pool);
+        assert.ok((await pool.query('SELECT completed_at FROM notification_jobs WHERE id=$1',[eligibilityJob])).rows[0].completed_at);assert.equal((await pool.query('SELECT count(*)::int n FROM messages WHERE client_id=$1',['notification:'+eligibilityJob])).rows[0].n,1);
+      }finally{await pool.query('UPDATE "user" SET banned=false WHERE id=ANY($1::text[])',[[b.id,c.id]]);await pool.query("UPDATE memberships SET role='admin' WHERE user_id=$1",[b.id]);}
       await pool.query(
         "ALTER TABLE audit ADD CONSTRAINT api_test_audit_rollback CHECK(reason<>'rollback-test')",
       );
