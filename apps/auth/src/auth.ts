@@ -10,24 +10,41 @@ export function createAuth(
   mailSender?: ReturnType<typeof createMailSender>,
 ) {
   const send = mailSender ?? createMailSender(config.mail);
-  const mailReady = Boolean(mailSender || (config.mail.url && config.mail.from));
+  const mailReady = Boolean(
+    mailSender || (config.mail.url && config.mail.from),
+  );
   const allowed = async (email: string) => {
-    const result = await pool.query("SELECT data FROM settings WHERE id = true");
+    const result = await pool.query(
+      "SELECT data FROM settings WHERE id = true",
+    );
     const policy = result.rows[0]?.data;
-    return policy?.allowAllEmailDomains === true || emailAllowed(email, policy?.allowedEmailDomains ?? config.domains);
+    return (
+      policy?.allowAllEmailDomains === true ||
+      emailAllowed(email, policy?.allowedEmailDomains ?? config.domains)
+    );
   };
   return betterAuth({
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (
-          ["/request-password-reset", "/change-email", "/send-verification-email", "/sign-up/email"].includes(ctx.path) &&
+          [
+            "/request-password-reset",
+            "/change-email",
+            "/send-verification-email",
+            "/sign-up/email",
+          ].includes(ctx.path) &&
           !mailReady
         )
           throw new APIError("SERVICE_UNAVAILABLE", {
-            message: "Password reset is unavailable",
+            message: "Email service is unavailable",
           });
-        if (ctx.path === "/change-email" && !(await allowed(String(ctx.body?.newEmail ?? ""))))
-          throw new APIError("FORBIDDEN", { message: "Email domain is not allowed" });
+        if (
+          ctx.path === "/change-email" &&
+          !(await allowed(String(ctx.body?.newEmail ?? "")))
+        )
+          throw new APIError("FORBIDDEN", {
+            message: "Email domain is not allowed",
+          });
       }),
     },
     secret: config.secret,

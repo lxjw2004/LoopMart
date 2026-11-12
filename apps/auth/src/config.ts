@@ -22,12 +22,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     throw new Error(
       "BETTER_AUTH_URL must be an HTTPS origin or local HTTP origin",
     );
-  const trustedOrigins = [baseURL, ...(env.TRUSTED_ORIGINS ?? "").split(",").map(x => x.trim()).filter(Boolean)];
+  const trustedOrigins = [
+    baseURL,
+    ...(env.TRUSTED_ORIGINS ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+  ];
   for (const origin of trustedOrigins) {
     const parsed = new URL(origin);
-    if (parsed.origin !== origin || parsed.username || parsed.password ||
-        (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname))))
-      throw new Error("TRUSTED_ORIGINS must contain HTTPS or local HTTP origins");
+    if (
+      parsed.origin !== origin ||
+      parsed.username ||
+      parsed.password ||
+      (parsed.protocol !== "https:" &&
+        !(
+          parsed.protocol === "http:" &&
+          ["localhost", "127.0.0.1"].includes(parsed.hostname)
+        ))
+    )
+      throw new Error(
+        "TRUSTED_ORIGINS must contain HTTPS or local HTTP origins",
+      );
   }
   const databaseURL = required("DATABASE_URL");
   if (!["postgres:", "postgresql:"].includes(new URL(databaseURL).protocol))

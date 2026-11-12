@@ -1,3 +1,7 @@
+# 部署准备审查（历史发现与最终修复）
+
+最终状态（2026-11-13）：脚本已纳入 TypeScript 编译并验证 dist/scripts/migrate.js，数据库迁移SQL已复制；镜像排除备份、环境秘密、浏览器产物；README已更新完整项目运行方式。两套Compose配置、LinuxARM64镜像构建、四容器启动／代理／静态资源检查均已由主代理执行通过。以下保留原始审查记录，原三项发现已关闭。
+
 # Deployment preparation review
 
 Reviewed Dockerfile, local/deployment/auth Compose, setup/migration/development/admin/browser seed scripts, README and operations documentation. No SSH, deployment, external-system change, secret printing, or Cardmaster access was performed.

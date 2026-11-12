@@ -3,3 +3,13 @@ dist/
 .env
 .env.*
 !.env.example
+
+.next/
+.superpowers/
+playwright-report/
+test-results/
+
+*.tsbuildinfo
+__pycache__/
+backups/
+.venv/

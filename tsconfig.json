@@ -9,5 +9,16 @@
     "rootDir": ".",
     "skipLibCheck": true
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "tests/**/*.ts"]
+  "include": [
+    "apps/**/*.ts",
+    "packages/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "exclude": [
+    "apps/web",
+    "apps/admin",
+    "node_modules",
+    "dist"
+  ]
 }

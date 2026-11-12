@@ -1,3 +1,3 @@
-import { EventEmitter } from 'node:events';
+import { EventEmitter } from "node:events";
 export const events = new EventEmitter();
 events.setMaxListeners(10000);

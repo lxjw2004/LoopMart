@@ -1,2 +1,4 @@
-import Client from '../../../../packages/ui/src/Client';
-export default function Page(){return <Client/>}
+import Client from "../../../../packages/ui/src/Client";
+export default function Page() {
+  return <Client />;
+}

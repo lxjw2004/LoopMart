@@ -1,0 +1,62 @@
+# Deployment preparation only. Review paths, domains, secrets and backups before use.
+name: loopmart
+x-app: &app
+  image: loopmart:${LOOPMART_IMAGE_TAG:?Set a reviewed immutable image tag}
+  environment:
+    HOST: 0.0.0.0
+  restart: unless-stopped
+  mem_limit: 768m
+  cpus: 1.0
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: loopmart
+      POSTGRES_DB: loopmart
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required}
+    volumes:
+      - loopmart-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    mem_limit: 768m
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U loopmart]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+  migrate:
+    <<: *app
+    env_file: .env
+    command: [node, dist/scripts/migrate.js]
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    <<: *app
+    env_file: .env
+    command: [node, dist/apps/api/src/server.js]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  web:
+    <<: *app
+    command: [node, apps/web/.next/standalone/apps/web/server.js]
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports: ['127.0.0.1:3050:3000']
+    depends_on: [api]
+  admin:
+    <<: *app
+    command: [node, apps/admin/.next/standalone/apps/admin/server.js]
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3004
+    ports: ['127.0.0.1:3054:3004']
+    depends_on: [api]
+volumes:
+  loopmart-postgres:
+
+networks:
+  default:
+    name: loopmart-internal

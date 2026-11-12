@@ -26,4 +26,4 @@ createServer((request, response) => {
     if (!response.headersSent) response.writeHead(500);
     response.end();
   });
-}).listen(3001, "127.0.0.1");
+}).listen(Number(process.env.PORT || 3001), process.env.HOST || "127.0.0.1");

@@ -1,0 +1,27 @@
+# Substitute reviewed domains and configure TLS before exposing a service.
+server {
+    listen 80;
+    server_name loopmart.example.invalid;
+    client_max_body_size 128k;
+    location / {
+        proxy_pass http://127.0.0.1:3050;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}
+server {
+    listen 80;
+    server_name admin.loopmart.example.invalid;
+    client_max_body_size 128k;
+    location / {
+        proxy_pass http://127.0.0.1:3054;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+}

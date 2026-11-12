@@ -1,3 +1,4 @@
+import { isolatedTestDatabaseURL } from "./test-database.js";
 import { processNotificationJobs } from "../apps/api/src/notifications.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -7,7 +8,7 @@ import { Pool } from "pg";
 import { migrate } from "../packages/database/src/migrate.js";
 import { createAuth } from "../apps/auth/src/auth.js";
 import { createApp } from "../apps/api/src/app.js";
-const databaseURL = process.env.TEST_DATABASE_URL;
+const databaseURL = isolatedTestDatabaseURL(process.env.TEST_DATABASE_URL);
 test(
   "real PostgreSQL and Better Auth business authorization, chat and admin transactions",
   { skip: !databaseURL },
@@ -368,11 +369,66 @@ test(
         ).status,
         403,
       );
-      for(const status of ['reviewed','dismissed','violation_confirmed']){
-        const result=await request('/admin/reports/'+report.data.id,'PATCH',{status,note:'Decision '+status,reason:'Status transition'},a.cookie);assert.equal(result.status,200);
-        const jobs=(await pool.query("SELECT * FROM notification_jobs WHERE payload->>'reportId'=$1 AND payload->>'kind'='reporter_status_update' ORDER BY next_attempt_at DESC",[report.data.id])).rows;const newest=jobs[0];assert.equal(newest.payload.userId,c.id);assert.match(newest.payload.text,/Desk/);assert.match(newest.payload.text,new RegExp('Decision '+status));assert.match(newest.payload.text,/举报结果 \/ Report update/);
-        const before=(await pool.query("SELECT count(*)::int n FROM notification_jobs WHERE payload->>'reportId'=$1",[report.data.id])).rows[0].n;assert.equal((await request('/admin/reports/'+report.data.id,'PATCH',{status,note:'Same state retry',reason:'Retry'},a.cookie)).status,200);assert.equal((await pool.query("SELECT count(*)::int n FROM notification_jobs WHERE payload->>'reportId'=$1",[report.data.id])).rows[0].n,before);
-        for(let i=0;i<5;i++)await processNotificationJobs(pool);const delivered=(await pool.query('SELECT * FROM messages WHERE client_id=$1',['notification:'+newest.id])).rows[0];assert.ok(delivered);assert.equal(delivered.sender_id,a.id);const pair=(await pool.query('SELECT * FROM conversations WHERE id=$1',[delivered.conversation_id])).rows[0];assert.ok([pair.user_a,pair.user_b].includes(c.id));assert.ok(![pair.user_a,pair.user_b].includes(b.id));
+      for (const status of ["reviewed", "dismissed", "violation_confirmed"]) {
+        const result = await request(
+          "/admin/reports/" + report.data.id,
+          "PATCH",
+          { status, note: "Decision " + status, reason: "Status transition" },
+          a.cookie,
+        );
+        assert.equal(result.status, 200);
+        const jobs = (
+          await pool.query(
+            "SELECT * FROM notification_jobs WHERE payload->>'reportId'=$1 AND payload->>'kind'='reporter_status_update' ORDER BY next_attempt_at DESC",
+            [report.data.id],
+          )
+        ).rows;
+        const newest = jobs[0];
+        assert.equal(newest.payload.userId, c.id);
+        assert.match(newest.payload.text, /Desk/);
+        assert.match(newest.payload.text, new RegExp("Decision " + status));
+        assert.match(newest.payload.text, /举报结果 \/ Report update/);
+        const before = (
+          await pool.query(
+            "SELECT count(*)::int n FROM notification_jobs WHERE payload->>'reportId'=$1",
+            [report.data.id],
+          )
+        ).rows[0].n;
+        assert.equal(
+          (
+            await request(
+              "/admin/reports/" + report.data.id,
+              "PATCH",
+              { status, note: "Same state retry", reason: "Retry" },
+              a.cookie,
+            )
+          ).status,
+          200,
+        );
+        assert.equal(
+          (
+            await pool.query(
+              "SELECT count(*)::int n FROM notification_jobs WHERE payload->>'reportId'=$1",
+              [report.data.id],
+            )
+          ).rows[0].n,
+          before,
+        );
+        for (let i = 0; i < 5; i++) await processNotificationJobs(pool);
+        const delivered = (
+          await pool.query("SELECT * FROM messages WHERE client_id=$1", [
+            "notification:" + newest.id,
+          ])
+        ).rows[0];
+        assert.ok(delivered);
+        assert.equal(delivered.sender_id, a.id);
+        const pair = (
+          await pool.query("SELECT * FROM conversations WHERE id=$1", [
+            delivered.conversation_id,
+          ])
+        ).rows[0];
+        assert.ok([pair.user_a, pair.user_b].includes(c.id));
+        assert.ok(![pair.user_a, pair.user_b].includes(b.id));
       }
       const retryId = crypto.randomUUID();
       await pool.query(
@@ -401,10 +457,67 @@ test(
       );
       assert.equal(page2.data.length, 2);
       assert.equal(page2.nextCursor, null);
-      const expectedMarket=(await pool.query("SELECT id FROM entities WHERE data->>'title'=$1 ORDER BY created_at DESC,id DESC",[pagingTitle])).rows.map(r=>r.id);assert.deepEqual([...page1.data,...page2.data].map((r:any)=>r.id),expectedMarket);assert.equal(new Set([...page1.data,...page2.data].map((r:any)=>r.id)).size,52);assert.equal((await request('/items?cursor=bad')).status,400);
-const rideGroup='Sorted-'+crypto.randomUUID();await pool.query("INSERT INTO entities(id,kind,publisher_id,data) SELECT gen_random_uuid(),'ride',$1,$2::jsonb||jsonb_build_object('notes',$3::text,'departureTime',('2027-01-01T00:00:00Z'::timestamptz+(i/5)*interval '1 minute')::text) FROM generate_series(1,53)i",[b.id,ride,rideGroup]);
-for(const sort of ['departure_asc','departure_desc']){const first=await request('/rides?q='+rideGroup+'&sort='+sort);assert.equal(first.data.length,50);assert.ok(first.nextCursor);const second=await request('/rides?q='+rideGroup+'&sort='+sort+'&cursor='+first.nextCursor);const all=[...first.data,...second.data];assert.equal(all.length,53);assert.equal(new Set(all.map((r:any)=>r.id)).size,53);const dir=sort==='departure_asc'?'ASC':'DESC';const expected=(await pool.query(`SELECT id FROM entities WHERE data->>'notes'=$1 ORDER BY (data->>'departureTime')::timestamptz ${dir},id ${dir}`,[rideGroup])).rows.map(r=>r.id);assert.deepEqual(all.map((r:any)=>r.id),expected);assert.equal((await request('/rides?sort='+(sort==='departure_asc'?'departure_desc':'departure_asc')+'&cursor='+first.nextCursor)).status,400);}
-const controller = new AbortController();
+      const expectedMarket = (
+        await pool.query(
+          "SELECT id FROM entities WHERE data->>'title'=$1 ORDER BY created_at DESC,id DESC",
+          [pagingTitle],
+        )
+      ).rows.map((r) => r.id);
+      assert.deepEqual(
+        [...page1.data, ...page2.data].map((r: any) => r.id),
+        expectedMarket,
+      );
+      assert.equal(
+        new Set([...page1.data, ...page2.data].map((r: any) => r.id)).size,
+        52,
+      );
+      assert.equal((await request("/items?cursor=bad")).status, 400);
+      const rideGroup = "Sorted-" + crypto.randomUUID();
+      await pool.query(
+        "INSERT INTO entities(id,kind,publisher_id,data) SELECT gen_random_uuid(),'ride',$1,$2::jsonb||jsonb_build_object('notes',$3::text,'departureTime',('2027-01-01T00:00:00Z'::timestamptz+(i/5)*interval '1 minute')::text) FROM generate_series(1,53)i",
+        [b.id, ride, rideGroup],
+      );
+      for (const sort of ["departure_asc", "departure_desc"]) {
+        const first = await request("/rides?q=" + rideGroup + "&sort=" + sort);
+        assert.equal(first.data.length, 50);
+        assert.ok(first.nextCursor);
+        const second = await request(
+          "/rides?q=" +
+            rideGroup +
+            "&sort=" +
+            sort +
+            "&cursor=" +
+            first.nextCursor,
+        );
+        const all = [...first.data, ...second.data];
+        assert.equal(all.length, 53);
+        assert.equal(new Set(all.map((r: any) => r.id)).size, 53);
+        const dir = sort === "departure_asc" ? "ASC" : "DESC";
+        const expected = (
+          await pool.query(
+            `SELECT id FROM entities WHERE data->>'notes'=$1 ORDER BY (data->>'departureTime')::timestamptz ${dir},id ${dir}`,
+            [rideGroup],
+          )
+        ).rows.map((r) => r.id);
+        assert.deepEqual(
+          all.map((r: any) => r.id),
+          expected,
+        );
+        assert.equal(
+          (
+            await request(
+              "/rides?sort=" +
+                (sort === "departure_asc"
+                  ? "departure_desc"
+                  : "departure_asc") +
+                "&cursor=" +
+                first.nextCursor,
+            )
+          ).status,
+          400,
+        );
+      }
+      const controller = new AbortController();
       const stream = await fetch(base + "/events", {
         headers: { cookie: b.cookie },
         signal: controller.signal,
@@ -831,16 +944,95 @@ const controller = new AbortController();
         ).status,
         429,
       );
-      const eligibilityJob=crypto.randomUUID();await pool.query('INSERT INTO notification_jobs(id,payload) VALUES($1,$2)',[eligibilityJob,{userId:c.id,text:'Eligibility retry'}]);
-      try{
-        await pool.query('UPDATE "user" SET banned=true WHERE id=$1',[b.id]);await processNotificationJobs(pool);
-        assert.equal((await pool.query('SELECT count(*)::int n FROM messages WHERE client_id=$1',['notification:'+eligibilityJob])).rows[0].n,0);
-        let job=(await pool.query('SELECT * FROM notification_jobs WHERE id=$1',[eligibilityJob])).rows[0];assert.equal(job.completed_at,null);assert.equal(job.attempts,1);assert.ok(job.last_error);
-        await pool.query('UPDATE "user" SET banned=false WHERE id=$1',[b.id]);await pool.query("UPDATE memberships SET role='member' WHERE user_id=$1",[b.id]);await pool.query('UPDATE notification_jobs SET next_attempt_at=now() WHERE id=$1',[eligibilityJob]);await processNotificationJobs(pool);
-        assert.equal((await pool.query('SELECT count(*)::int n FROM messages WHERE client_id=$1',['notification:'+eligibilityJob])).rows[0].n,0);job=(await pool.query('SELECT * FROM notification_jobs WHERE id=$1',[eligibilityJob])).rows[0];assert.equal(job.attempts,2);assert.equal(job.completed_at,null);
-        await pool.query("UPDATE memberships SET role='admin' WHERE user_id=$1",[b.id]);await pool.query('UPDATE "user" SET banned=true WHERE id=$1',[c.id]);await pool.query('UPDATE notification_jobs SET next_attempt_at=now() WHERE id=$1',[eligibilityJob]);await processNotificationJobs(pool);await processNotificationJobs(pool);
-        assert.ok((await pool.query('SELECT completed_at FROM notification_jobs WHERE id=$1',[eligibilityJob])).rows[0].completed_at);assert.equal((await pool.query('SELECT count(*)::int n FROM messages WHERE client_id=$1',['notification:'+eligibilityJob])).rows[0].n,1);
-      }finally{await pool.query('UPDATE "user" SET banned=false WHERE id=ANY($1::text[])',[[b.id,c.id]]);await pool.query("UPDATE memberships SET role='admin' WHERE user_id=$1",[b.id]);}
+      const eligibilityJob = crypto.randomUUID();
+      await pool.query(
+        "INSERT INTO notification_jobs(id,payload) VALUES($1,$2)",
+        [eligibilityJob, { userId: c.id, text: "Eligibility retry" }],
+      );
+      try {
+        await pool.query('UPDATE "user" SET banned=true WHERE id=$1', [b.id]);
+        await processNotificationJobs(pool);
+        assert.equal(
+          (
+            await pool.query(
+              "SELECT count(*)::int n FROM messages WHERE client_id=$1",
+              ["notification:" + eligibilityJob],
+            )
+          ).rows[0].n,
+          0,
+        );
+        let job = (
+          await pool.query("SELECT * FROM notification_jobs WHERE id=$1", [
+            eligibilityJob,
+          ])
+        ).rows[0];
+        assert.equal(job.completed_at, null);
+        assert.equal(job.attempts, 1);
+        assert.ok(job.last_error);
+        await pool.query('UPDATE "user" SET banned=false WHERE id=$1', [b.id]);
+        await pool.query(
+          "UPDATE memberships SET role='member' WHERE user_id=$1",
+          [b.id],
+        );
+        await pool.query(
+          "UPDATE notification_jobs SET next_attempt_at=now() WHERE id=$1",
+          [eligibilityJob],
+        );
+        await processNotificationJobs(pool);
+        assert.equal(
+          (
+            await pool.query(
+              "SELECT count(*)::int n FROM messages WHERE client_id=$1",
+              ["notification:" + eligibilityJob],
+            )
+          ).rows[0].n,
+          0,
+        );
+        job = (
+          await pool.query("SELECT * FROM notification_jobs WHERE id=$1", [
+            eligibilityJob,
+          ])
+        ).rows[0];
+        assert.equal(job.attempts, 2);
+        assert.equal(job.completed_at, null);
+        await pool.query(
+          "UPDATE memberships SET role='admin' WHERE user_id=$1",
+          [b.id],
+        );
+        await pool.query('UPDATE "user" SET banned=true WHERE id=$1', [c.id]);
+        await pool.query(
+          "UPDATE notification_jobs SET next_attempt_at=now() WHERE id=$1",
+          [eligibilityJob],
+        );
+        await processNotificationJobs(pool);
+        await processNotificationJobs(pool);
+        assert.ok(
+          (
+            await pool.query(
+              "SELECT completed_at FROM notification_jobs WHERE id=$1",
+              [eligibilityJob],
+            )
+          ).rows[0].completed_at,
+        );
+        assert.equal(
+          (
+            await pool.query(
+              "SELECT count(*)::int n FROM messages WHERE client_id=$1",
+              ["notification:" + eligibilityJob],
+            )
+          ).rows[0].n,
+          1,
+        );
+      } finally {
+        await pool.query(
+          'UPDATE "user" SET banned=false WHERE id=ANY($1::text[])',
+          [[b.id, c.id]],
+        );
+        await pool.query(
+          "UPDATE memberships SET role='admin' WHERE user_id=$1",
+          [b.id],
+        );
+      }
       await pool.query(
         "ALTER TABLE audit ADD CONSTRAINT api_test_audit_rollback CHECK(reason<>'rollback-test')",
       );

@@ -1,16 +1,56 @@
-# LoopMart 认证基础
+# LoopMart
 
-要求 Node.js 24、npm。本阶段仅认证与数据库基础，不是完整市场产品。
+面向校园社区的二手市场与拼车产品，提供用户 Web 和管理后台。支持独立 Better Auth、PostgreSQL、文字私聊、收藏、举报、社区管理消息、审计及中英文界面。无支付、媒体上传和 iOS 客户端。
 
-1. 执行 `npm ci`。
-2. 复制 `.env.example` 为 `.env`，设置本地数据库密码及随机密钥（`openssl rand -base64 48`）。不要提交环境文件。
-3. Docker 可用时执行 `docker compose --env-file .env -f infra/compose/local.yaml up -d postgres`。
-4. 执行 `npm run build && npm run auth:migrate`，仅向已确认的本地数据库应用 Better Auth schema。
-5. 配置可信且启用 TLS 的 SMTP_URL 与 MAIL_FROM，之后注册才开放；空 SMTP 不绕过验证或输出令牌。
-6. 执行 `npm run auth`，服务绑定 127.0.0.1:3001，路径 `/api/auth/*`。
+## 本地运行
 
-验证命令：`npm test`、`npm run typecheck`、`npm run build`。测试库使用独立服务 postgres-test，启动时添加 `--profile test`，端口 5433、临时存储；不得使用开发或生产数据运行集成测试。
+要求 Node.js24、npm、Docker Desktop。源码在当前仓库，数据库由项目独立 Docker 资源管理。
 
-ALLOWED_EMAIL_DOMAINS 默认 purdue.edu，只匹配完整域名、不包含子域；账户独立。未来业务授权应调用 apps/auth/src/member.ts 的 requireMember，每次重新读取账户状态。原始 session 仅表示身份。该函数是账户验证/封禁基础断言，完整社区成员体系尚未实现。无默认管理员。
+```sh
+export PATH="$HOME/.docker/bin:$PATH"
+npm ci
+node scripts/setup-local-env.mjs
+docker compose --env-file .env -f infra/compose/local.yaml --profile test up -d
+npm run db:migrate
+npm run dev
+```
 
-采用官方 [Node 适配器](https://www.better-auth.com/docs/integrations/node)、[数据库迁移](https://www.better-auth.com/docs/concepts/database)、[邮件验证](https://www.better-auth.com/docs/concepts/email) 与 [pg Pool](https://node-postgres.com/features/pooling)。迁移脚本通过 getMigrations 应用同一认证配置。依赖锁定，npmrc 关闭无关 peer ORM 自动安装。未部署、未访问 OCI、未修改 Cardmaster。
+已经有 `.env` 和 `.env.test` 时不要重建配置；生成脚本会拒绝覆盖。启动后访问 [用户端](http://localhost:3000) 和 [管理端](http://localhost:3004)。认证和业务服务分别监听本机3001、3002。
+
+SMTP 当前留空，因此真实用户注册验证和密码找回暂不可用；不会自动验证账号或暴露验证链接。发信凭据由你后续配置。管理员通过 `npm run admin:create` 显式建立，无默认账号密码，仍需邮箱验证。
+
+## 验证
+
+```sh
+npm test
+npm run test:integration
+npm run typecheck
+npm run build
+```
+
+集成测试只使用 `.env.test` 中的本地隔离 PostgreSQL，测试收件箱仅由测试代码注入。浏览器测试种子和过程见[本地开发说明](docs/operations/local-development.md)。不要将测试身份或测试配置用于生产。
+
+## 源码结构
+
+```text
+apps/web          用户 Web（Next.js）
+apps/admin        管理后台（Next.js）
+apps/api          业务 API、实时消息、权限与后台任务
+apps/auth         LoopMart 独立 Better Auth
+packages/database PostgreSQL 业务迁移
+packages/ui       Web／Admin 界面、请求封装与本地化
+packages/contracts 共享权限与邮箱策略
+packages/integrations SMTP 适配边界
+infra             本地数据库与部署模板
+scripts           本地启动、迁移、管理员初始化
+tests             基础、真实数据库和浏览器测试
+docs              设计、API、验收与运维文档
+```
+
+未来 iOS 工程放在 `apps/ios`，首版不创建空工程。服务器认证部署目录规划为 `/data/better-auth/loopmart`，Cardmaster 原目录不动。当前没有执行 OCI 部署。
+
+- [已批准设计](docs/superpowers/specs/2026-11-12-loopmart-design.md)
+- [实施计划](docs/superpowers/plans/2026-11-12-loopmart-implementation.md)
+- [bm 功能基线](docs/bm-feature-baseline.md)
+- [API 契约](docs/api/contract.md)
+- [部署与恢复](docs/operations/deployment.md)

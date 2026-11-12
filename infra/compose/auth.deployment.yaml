@@ -1,0 +1,17 @@
+# Copy with private .env into /data/better-auth/loopmart only after approval.
+name: loopmart-auth
+services:
+  auth:
+    image: loopmart:${LOOPMART_IMAGE_TAG:?Set a reviewed immutable image tag}
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+    command: [node, dist/apps/auth/src/server.js]
+    ports: ['127.0.0.1:3051:3001']
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+networks:
+  default:
+    external: true
+    name: loopmart-internal

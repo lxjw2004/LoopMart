@@ -1,3 +1,5 @@
+> 基础阶段历史记录；当前完整验收与范围限制见 `docs/acceptance.md`。
+
 # Foundation review
 
 Reviewed current foundation fixes at `0cf1ca3`, including auth, member authorization, mail request policy, tests, and implementation report. No OCI access or code changes performed.

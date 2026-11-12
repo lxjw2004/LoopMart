@@ -1,3 +1,5 @@
+> 基础阶段历史记录；当前完整验收与范围限制见 `docs/acceptance.md`。
+
 # 基础实施报告
 
 已实现 npm workspace、TypeScript、精确域名策略、认证权限断言、SMTP 适配、Better Auth Node 服务、PostgreSQL 迁移入口和隔离 Compose。
