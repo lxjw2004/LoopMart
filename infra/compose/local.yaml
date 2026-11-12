@@ -1,0 +1,25 @@
+name: loopmart-local
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: loopmart
+      POSTGRES_DB: loopmart
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - loopmart-data:/var/lib/postgresql/data
+  postgres-test:
+    image: postgres:17
+    profiles: [test]
+    environment:
+      POSTGRES_USER: loopmart
+      POSTGRES_DB: loopmart_test
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local database password}
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+volumes:
+  loopmart-data:

@@ -1,0 +1,31 @@
+{
+  "name": "loopmart",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "auth": "node --env-file=.env dist/apps/auth/src/server.js",
+    "auth:migrate": "node --env-file=.env dist/apps/auth/src/migrate.js"
+  },
+  "dependencies": {
+    "better-auth": "^1.7.22",
+    "nodemailer": "^10.5.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
