@@ -1,13 +1,25 @@
-# Web / Admin implementation
+# Web 与 Admin 实现与验证
 
-Clients: `apps/web` (3000), `apps/admin` (3004); shared React forms, request helpers and styling under `packages/ui`, bilingual labels under `packages/i18n`. Both use same-origin Next rewrites to local API 3002 and auth 3001 and standalone production output.
+## 实现
 
-Implemented real-API navigation and forms for listings, filters, details, posting/editing, separate local text drafts, favorites, profile and account actions; conversations, unread counts, active read updates, SSE requery and contextual references; four-target reports, contact and privacy. Admin exposes overview, users/create/role/ban/password/reset, item/ride CRUD, reports/review, conversations, community messages, contact records, settings and audit. Admin writes require an entered reason and explicit confirmation. No media, payment or demo data.
+- Web 使用端口 3000，Admin 使用 3004。Next.js 同源代理分别访问业务 API 与认证服务；支持 `API_INTERNAL_URL`、`AUTH_INTERNAL_URL`，生成单仓库 standalone 产物。
+- 中英切换、响应式文字卡片、键盘焦点、加载／空态／错误重试及身份访问状态。无媒体入口或演示数据。
+- 市场和拼车支持筛选、分页、详情、发布、编辑、删除和状态切换；两类本机草稿独立保存。费用仅展示，拼车按所选 IANA 时区转换，拒绝不存在的夏令时时间。
+- 收藏、个人发布分类与分页、昵称、邮箱修改、注册／登录／验证邮件／找回与重设密码／退出；公开资料展示其有效物品和拼车。
+- 私聊按用户对合并，支持发布引用、发送重试去重、分页补齐、已读、未读及 SSE 查询恢复；四类举报、联系和双语隐私政策均有实际 API 入口。
+- Admin 提供总览、用户搜索与创建、角色和封禁、密码设置／重置、物品和拼车创建／编辑／状态审核／删除、举报审核、会话消息、社区消息及接收人搜索、联系处理、认证域策略／社区管理员／政策设置、审计。管理写入必须填写原因并确认。
 
-Validation: both client strict TypeScript checks pass (`npx tsc --noEmit -p apps/web/tsconfig.json` and admin equivalent). Five focused tests pass (`npx tsx --test packages/ui/src/*.test.ts`), covering credentialed pagination, API/auth failure propagation, chosen IANA-zone conversion, daylight-saving gaps and paginated reconnect catch-up with deduplication. Fetched form hydration and editing departure wall-clock values are handled explicitly. Production build attempted but is blocked by an incomplete Next dependency installation (`next` bin missing; direct module invocation lacks `../server/require-hook`). Browser/E2E QA is not yet performed. Current interface is an initial functional implementation and requires acceptance review against the detailed baseline; no claim of complete bm parity or browser-verified behavior is made.
+## 验证证据
 
-Known limitations requiring follow-up: conversation pagination depends on current server response (currently up to 500); miscellaneous admin details use structured labeled fields and message cards; audit/conversation date filter effectiveness depends on API filtering support. Full English/Chinese content and responsive keyboard behavior need browser verification.
+- Web、Admin 严格 TypeScript 检查通过。
+- 两个 Next.js webpack 生产构建通过，包含类型检查、页面生成及 standalone 跟踪。
+- `npx tsx --test packages/ui/src/*.test.ts`：5 项通过，覆盖同源凭据与分页、错误传播、聊天分页边界去重、IANA 时区及夏令时缺口。
+- 真实 PostgreSQL 测试环境与 Chromium：登录、物品发布／详情／收藏、拼车发布、四类举报、联系提交、私聊引用与持久化回复、Admin 用户修改／创建／密码设置／封禁和解封、物品创建／编辑／删除／审核、举报审核、联系处理、设置和管理列表通过。
+- 390px Web 和 Admin 均通过横向溢出检查；英文切换通过。截图位于忽略目录 `.superpowers/e2e/`。测试不输出密码。
+- 可复现脚本：`tests/browser/e2e.py`、`tests/browser/admin_crud.py`；浏览器路径使用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 或 Playwright 默认路径，身份来自仅本地测试文件 `.superpowers/e2e/users.json`。
 
-Follow-up review: direct client routes and admin settings aliases are supported; messages retain a client ID across failed retries, object details render as structured fields rather than JSON, moderation status controls are explicit, and unauthenticated private routes provide a sign-in action. Production build is now running through Next webpack while its SWC dependency downloads; completion remains pending.
+## 待完成验证
 
-Browser QA in progress: actual sign-in, publish, detail and favorite flow passed in Chromium. Select accessible-label issue and empty query-filter issue were found and corrected. Comprehensive scenario is `tests/browser/e2e.py`; its execution is paused during test-service/dependency restart. Full web/admin strict typechecks including generated Next types pass after Next declaration extraction.
+- 实时 SSE 的浏览器回复更新已复现异常，业务 API 正在排查；当前已确认重新打开会话可读到持久化回复，不能据此声称实时通过。
+- 最新公开资料列表／个人分类分页及移动筛选布局改动需要最终生产重建和浏览器回归。
+- SMTP 留空时无法完成真实邮箱投递链路；没有将接口入口或测试身份登录当作真实邮件投递成功。

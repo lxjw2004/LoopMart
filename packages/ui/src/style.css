@@ -2,3 +2,4 @@
 dl{display:grid;grid-template-columns:minmax(100px,180px) minmax(0,1fr);gap:12px;margin:16px 0}dt{color:#657388}dd{margin:0;overflow-wrap:anywhere}.detail-list{display:grid;gap:12px}p:has(>dl),p:has(>.detail-list){display:contents}
 .detail-field{display:grid;gap:6px;margin:18px 0;overflow-wrap:anywhere}.card,.grid>*{min-width:0;overflow-wrap:anywhere}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #80bbff;outline-offset:3px}.message p{white-space:pre-wrap;overflow-wrap:anywhere}.error button{margin-left:12px}
 @media(max-width:650px){.toolbar>*{flex:1 1 140px}}
+button[aria-pressed=false]{background:#edf5ff;color:#087cf0}
