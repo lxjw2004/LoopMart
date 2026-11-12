@@ -1,0 +1,14 @@
+CREATE TABLE communities(id text PRIMARY KEY CHECK(id='purdue'),name text NOT NULL);
+INSERT INTO communities VALUES('purdue','Purdue');
+ALTER TABLE memberships ADD CONSTRAINT membership_community_fk FOREIGN KEY(community_id) REFERENCES communities(id);
+ALTER TABLE entities ADD COLUMN community_id text NOT NULL DEFAULT 'purdue' REFERENCES communities(id) CHECK(community_id='purdue');
+ALTER TABLE conversations ADD COLUMN community_id text NOT NULL DEFAULT 'purdue' REFERENCES communities(id) CHECK(community_id='purdue');
+ALTER TABLE reports ADD COLUMN community_id text NOT NULL DEFAULT 'purdue' REFERENCES communities(id) CHECK(community_id='purdue');
+ALTER TABLE settings ADD COLUMN community_id text NOT NULL DEFAULT 'purdue' REFERENCES communities(id) CHECK(community_id='purdue');
+ALTER TABLE audit ADD COLUMN before_data jsonb;
+ALTER TABLE audit ADD COLUMN after_data jsonb;
+ALTER TABLE audit ADD COLUMN request_metadata jsonb;
+ALTER TABLE notification_jobs ADD COLUMN last_error text;
+ALTER TABLE conversations DROP CONSTRAINT conversations_check;
+UPDATE conversations SET user_a=user_b,user_b=user_a WHERE user_a COLLATE "C" > user_b COLLATE "C";
+ALTER TABLE conversations ADD CHECK(user_a COLLATE "C" < user_b COLLATE "C");
