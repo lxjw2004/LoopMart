@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {api,auth} from './api';
+import {api,auth} from './api.js';
 test('preserves pagination and credentials through same-origin requests',async()=>{
  const original=globalThis.fetch;
  try{globalThis.fetch=async(input,options)=>{assert.equal(input,'/api/v1/items');assert.equal(options?.credentials,'include');return new Response(JSON.stringify({data:[{id:'one'}],nextCursor:'two'}),{status:200})};assert.deepEqual(await api('/items'),{data:[{id:'one'}],nextCursor:'two'})}finally{globalThis.fetch=original}
