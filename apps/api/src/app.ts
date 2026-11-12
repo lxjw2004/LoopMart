@@ -1,3 +1,4 @@
+import {reviewReport} from './report-review.js';
 import {entityOrder,decodeEntityCursor,encodeEntityCursor} from './cursor.js';
 import { additionalFilters } from "./filters.js";
 import { administrativeSnapshot } from "./audit.js";
@@ -712,40 +713,7 @@ function createHandler({
             !["reviewed", "dismissed", "violation_confirmed"].includes(b.status)
           )
             fail(400, "Invalid report status");
-          await pool.query("UPDATE reports SET status=$1,note=$2 WHERE id=$3", [
-            b.status,
-            b.note ?? "",
-            id,
-          ]);
-          const report = (
-            await pool.query("SELECT * FROM reports WHERE id=$1", [id])
-          ).rows[0];
-          if (!report) fail(404, "Report not found");
-          if (b.status === "violation_confirmed") {
-            let recipient = report.target_id;
-            if (["item", "ride"].includes(report.target_type)) {
-              const target = (
-                await pool.query(
-                  "UPDATE entities SET status='deactivated_violation',updated_at=now() WHERE id=$1 AND kind=$2 RETURNING publisher_id",
-                  [report.target_id, report.target_type],
-                )
-              ).rows[0];
-              recipient = target?.publisher_id;
-            }
-            if (recipient && report.target_type !== "conversation")
-              await pool.query(
-                "INSERT INTO notification_jobs(id,payload) VALUES($1,$2)",
-                [
-                  randomUUID(),
-                  {
-                    userId: recipient,
-                    text:
-                      "A moderation decision was made concerning your content. " +
-                      (b.note ?? ""),
-                  },
-                ],
-              );
-          }
+          await reviewReport(pool,id,b.status,b.note??'');
           return send({ ok: true });
         }
         if (resource === "users" && method === "POST") {

@@ -368,6 +368,12 @@ test(
         ).status,
         403,
       );
+      for(const status of ['reviewed','dismissed','violation_confirmed']){
+        const result=await request('/admin/reports/'+report.data.id,'PATCH',{status,note:'Decision '+status,reason:'Status transition'},a.cookie);assert.equal(result.status,200);
+        const jobs=(await pool.query("SELECT * FROM notification_jobs WHERE payload->>'reportId'=$1 AND payload->>'kind'='reporter_status_update' ORDER BY next_attempt_at DESC",[report.data.id])).rows;const newest=jobs[0];assert.equal(newest.payload.userId,c.id);assert.match(newest.payload.text,/Desk/);assert.match(newest.payload.text,new RegExp('Decision '+status));assert.match(newest.payload.text,/举报结果 \/ Report update/);
+        const before=(await pool.query("SELECT count(*)::int n FROM notification_jobs WHERE payload->>'reportId'=$1",[report.data.id])).rows[0].n;assert.equal((await request('/admin/reports/'+report.data.id,'PATCH',{status,note:'Same state retry',reason:'Retry'},a.cookie)).status,200);assert.equal((await pool.query("SELECT count(*)::int n FROM notification_jobs WHERE payload->>'reportId'=$1",[report.data.id])).rows[0].n,before);
+        for(let i=0;i<5;i++)await processNotificationJobs(pool);const delivered=(await pool.query('SELECT * FROM messages WHERE client_id=$1',['notification:'+newest.id])).rows[0];assert.ok(delivered);assert.equal(delivered.sender_id,a.id);const pair=(await pool.query('SELECT * FROM conversations WHERE id=$1',[delivered.conversation_id])).rows[0];assert.ok([pair.user_a,pair.user_b].includes(c.id));assert.ok(![pair.user_a,pair.user_b].includes(b.id));
+      }
       const retryId = crypto.randomUUID();
       await pool.query(
         "INSERT INTO notification_jobs(id,payload) VALUES($1,$2)",
