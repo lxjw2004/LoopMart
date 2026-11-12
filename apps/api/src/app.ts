@@ -1,3 +1,4 @@
+import { additionalFilters } from './filters.js';
 import { administrativeSnapshot } from './audit.js';
 import { allowContact } from './rate-limit.js';
 import { events } from './events.js';
@@ -14,13 +15,19 @@ function createHandler({ pool, auth, origin }: {
     origin?: string | string[];
 }) {
     return async (req: IncomingMessage, res: ServerResponse) => {
-        const publish = (event: any) => { const pending = (req as any).pendingEvents; if (pending)
-            pending.push(event);
-        else
-            events.emit('change', event); };
+        const publish = (event: any) => {
+            const pending = (req as any).pendingEvents;
+            if (pending)
+                pending.push(event);
+            else
+                events.emit('change', event);
+        };
         const send = (data: any, status = 200) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ data })); };
         try {
             const url = new URL(req.url || '/', 'http://localhost');
+            for (const [key, value] of [...url.searchParams])
+                if (value === '')
+                    url.searchParams.delete(key);
             const p = url.pathname.replace(/^\/api\/v1/, '').split('/').filter(Boolean);
             const method = req.method || 'GET';
             const write = !['GET', 'HEAD'].includes(method);
@@ -137,7 +144,8 @@ function createHandler({ pool, auth, origin }: {
                         return send(entity(r));
                     }
                     const args: any[] = [kind, admin, mine ? user.id : null, url.searchParams.get('q') || '', url.searchParams.get('cursor') || null, url.searchParams.get('status'), url.searchParams.get('category'), url.searchParams.get('origin'), url.searchParams.get('destination'), url.searchParams.get('date')];
-                    const filtered = (await pool.query(`SELECT e.*,u.name publisher_name FROM entities e JOIN "user" u ON u.id=e.publisher_id WHERE kind=$1 AND (status='active' OR $2 OR publisher_id=$3) AND ($3::text IS NULL OR publisher_id=$3) AND data::text ILIKE '%'||$4||'%' AND ($5::uuid IS NULL OR e.id>$5) AND ($6::text IS NULL OR status=$6) AND ($7::text IS NULL OR data->>'category'=$7) AND ($8::text IS NULL OR data->>'origin' ILIKE '%'||$8||'%') AND ($9::text IS NULL OR data->>'destination' ILIKE '%'||$9||'%') AND ($10::text IS NULL OR CASE WHEN kind='ride' THEN ((data->>'departureTime')::timestamptz AT TIME ZONE (data->>'timeZone'))::date::text=$10 ELSE false END) ORDER BY e.id LIMIT 51`, args)).rows;
+                    const extraEntity = additionalFilters(url.searchParams, resource, args, 'row_to_json(e)');
+                    const filtered = (await pool.query(`SELECT e.*,u.name publisher_name FROM entities e JOIN "user" u ON u.id=e.publisher_id WHERE kind=$1 AND (status='active' OR $2 OR publisher_id=$3) AND ($3::text IS NULL OR publisher_id=$3) AND data::text ILIKE '%'||$4||'%' AND ($5::uuid IS NULL OR e.id>$5) AND ($6::text IS NULL OR status=$6) AND ($7::text IS NULL OR data->>'category'=$7) AND ($8::text IS NULL OR data->>'origin' ILIKE '%'||$8||'%') AND ($9::text IS NULL OR data->>'destination' ILIKE '%'||$9||'%') AND ($10::text IS NULL OR CASE WHEN kind='ride' THEN ((data->>'departureTime')::timestamptz AT TIME ZONE (data->>'timeZone'))::date::text=$10 ELSE false END) ${extraEntity} ORDER BY e.id LIMIT 51`, args)).rows;
                     res.writeHead(200, { 'content-type': 'application/json' });
                     return res.end(JSON.stringify({ data: filtered.slice(0, 50).map(entity), nextCursor: filtered.length > 50 ? filtered[49].id : null }));
                 }
@@ -160,7 +168,12 @@ function createHandler({ pool, auth, origin }: {
                 delete data.status;
                 if (method !== 'DELETE')
                     validate(kind, data);
-                const result = await pool.query('INSERT INTO entities(id,kind,publisher_id,data,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET data=excluded.data,status=excluded.status,updated_at=now() RETURNING *', [id ?? randomUUID(), kind, old?.publisher_id ?? user.id, data, status]);
+                if (admin && b.publisherId !== undefined) {
+                    str(b.publisherId, 200);
+                    if (!(await pool.query('SELECT 1 FROM \"user\" WHERE id=$1', [b.publisherId])).rowCount)
+                        fail(400, 'Publisher not found');
+                }
+                const result = await pool.query('INSERT INTO entities(id,kind,publisher_id,data,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET publisher_id=excluded.publisher_id,data=excluded.data,status=excluded.status,updated_at=now() RETURNING *', [id ?? randomUUID(), kind, admin && b.publisherId ? b.publisherId : old?.publisher_id ?? user.id, data, status]);
                 return send(entity(result.rows[0]));
             }
             if (resource === 'favorites') {
@@ -188,7 +201,8 @@ function createHandler({ pool, auth, origin }: {
                     const other = str(b.otherUserId ?? b.userId, 200);
                     if (other === user.id)
                         fail(400, 'Cannot message yourself');
-                    if(!(await pool.query('SELECT 1 FROM \"user\" WHERE id=$1 AND (\"emailVerified\"=true AND banned=false OR $2)',[other,admin])).rowCount)fail(404,'Recipient not found');
+                    if (!(await pool.query('SELECT 1 FROM \"user\" WHERE id=$1 AND (\"emailVerified\"=true AND banned=false OR $2)', [other, admin])).rowCount)
+                        fail(404, 'Recipient not found');
                     const pair = [user.id, other].sort();
                     const c = (await pool.query('INSERT INTO conversations(id,user_a,user_b) VALUES($1,$2,$3) ON CONFLICT(user_a,user_b) DO UPDATE SET user_a=excluded.user_a RETURNING *', [randomUUID(), ...pair])).rows[0];
                     if (resource === 'community-messages') {
@@ -198,8 +212,13 @@ function createHandler({ pool, auth, origin }: {
                     publish({ users: pair, type: 'conversation', data: { id: c.id } });
                     return send({ id: c.id });
                 }
-                if (!id)
-                    return send((await pool.query('SELECT c.id,json_build_object(\'id\',u.id,\'name\',u.name) "otherUser",(SELECT row_to_json(m) FROM (SELECT id,text,created_at "createdAt",sender_id "senderId" FROM messages WHERE conversation_id=c.id ORDER BY seq DESC LIMIT 1)m) "lastMessage",(SELECT count(*)::int FROM messages m WHERE m.conversation_id=c.id AND m.sender_id<>$1 AND m.seq>coalesce(r.seq,0)) "unreadCount",(SELECT id FROM messages WHERE seq=r.seq) "readMessageId" FROM conversations c JOIN "user" u ON u.id=CASE WHEN c.user_a=$1 THEN c.user_b ELSE c.user_a END LEFT JOIN reads r ON r.conversation_id=c.id AND r.user_id=$1 WHERE $2 OR c.user_a=$1 OR c.user_b=$1', [user.id, admin])).rows);
+                if (!id) {
+                    const args: unknown[] = [user.id, admin, url.searchParams.get('q') ?? '', url.searchParams.get('cursor')];
+                    const extra = additionalFilters(url.searchParams, resource, args);
+                    const rows = (await pool.query(`SELECT * FROM (${'SELECT c.id,json_build_object(\'id\',u.id,\'name\',u.name) "otherUser",(SELECT row_to_json(m) FROM (SELECT id,text,created_at "createdAt",sender_id "senderId" FROM messages WHERE conversation_id=c.id ORDER BY seq DESC LIMIT 1)m) "lastMessage",(SELECT count(*)::int FROM messages m WHERE m.conversation_id=c.id AND m.sender_id<>$1 AND m.seq>coalesce(r.seq,0)) "unreadCount",(SELECT id FROM messages WHERE seq=r.seq) "readMessageId" FROM conversations c JOIN "user" u ON u.id=CASE WHEN c.user_a=$1 THEN c.user_b ELSE c.user_a END LEFT JOIN reads r ON r.conversation_id=c.id AND r.user_id=$1 WHERE $2 OR c.user_a=$1 OR c.user_b=$1'}) t WHERE (row_to_json(t)::text ILIKE '%'||$3||'%') AND ($4::uuid IS NULL OR id>$4) ${extra} ORDER BY id LIMIT 101`, args)).rows;
+                    res.writeHead(200, { 'content-type': 'application/json' });
+                    return res.end(JSON.stringify({ data: rows.slice(0, 100), nextCursor: rows.length > 100 ? rows[99].id : null }));
+                }
                 const c = (await pool.query('SELECT * FROM conversations WHERE id=$1', [id])).rows[0];
                 if (!c)
                     fail(404, 'Conversation not found');
@@ -257,7 +276,8 @@ function createHandler({ pool, auth, origin }: {
                     fail(400, 'Invalid target');
                 if (b.targetType === 'conversation' && !(await pool.query('SELECT 1 FROM conversations WHERE id=$1 AND (user_a=$2 OR user_b=$2)', [b.targetId, user.id])).rowCount)
                     fail(404, 'Target not found');
-                if(['item','ride'].includes(b.targetType)&&!(await pool.query("SELECT 1 FROM entities WHERE id=$1 AND kind=$2 AND (status='active' OR publisher_id=$3)",[b.targetId,b.targetType,user.id])).rowCount)fail(404,'Target not found');
+                if (['item', 'ride'].includes(b.targetType) && !(await pool.query("SELECT 1 FROM entities WHERE id=$1 AND kind=$2 AND (status='active' OR publisher_id=$3)", [b.targetId, b.targetType, user.id])).rowCount)
+                    fail(404, 'Target not found');
                 const table = b.targetType === 'user' ? '"user"' : b.targetType === 'conversation' ? 'conversations' : 'entities';
                 if (!(await pool.query(`SELECT id FROM ${table} WHERE id=$1`, [str(b.targetId, 200)])).rowCount)
                     fail(404, 'Target not found');
@@ -268,8 +288,12 @@ function createHandler({ pool, auth, origin }: {
             }
             if (admin && ['users', 'reports', 'audit', 'contact'].includes(resource)) {
                 const table = resource === 'users' ? '"user"' : resource;
-                const enrichUsers = async (rows: any[]) => { if (resource !== 'users')
-                    return rows; const memberships = (await pool.query('SELECT user_id,role,community_id FROM memberships WHERE user_id=ANY($1::text[])', [rows.map(r => r.id)])).rows; return rows.map(r => { const m = memberships.find(m => m.user_id === r.id); return { ...r, role: m?.role ?? 'member', communityId: m?.community_id ?? 'purdue' }; }); };
+                const enrichUsers = async (rows: any[]) => {
+                    if (resource !== 'users')
+                        return rows;
+                    const memberships = (await pool.query('SELECT user_id,role,community_id FROM memberships WHERE user_id=ANY($1::text[])', [rows.map(r => r.id)])).rows;
+                    return rows.map(r => { const m = memberships.find(m => m.user_id === r.id); return { ...r, role: m?.role ?? 'member', communityId: m?.community_id ?? 'purdue' }; });
+                };
                 if (method === 'GET') {
                     if (id) {
                         const row = (await pool.query(`SELECT * FROM ${table} WHERE id=$1`, [id])).rows[0];
@@ -278,9 +302,19 @@ function createHandler({ pool, auth, origin }: {
                         return send((await enrichUsers([row]))[0]);
                     }
                     const cursor = url.searchParams.get('cursor');
-                    const rows = (await pool.query(`SELECT * FROM ${table} WHERE ($1::text IS NULL OR id::text>$1) AND row_to_json(${table})::text ILIKE '%'||$2||'%' AND ($3::text IS NULL OR row_to_json(${table})->>'status'=$3 OR ($4::boolean AND CASE WHEN coalesce(row_to_json(${table})->>'banned','false')='true' THEN 'banned' ELSE 'active' END=$3)) ORDER BY id LIMIT 101`, [cursor, url.searchParams.get('q') ?? '', url.searchParams.get('status'), resource === 'users'])).rows;
+                    const filterArgs: unknown[] = [cursor, url.searchParams.get('q') ?? '', url.searchParams.get('status'), resource === 'users'];
+                    const extra = additionalFilters(url.searchParams, resource, filterArgs);
+                    const rows = (await pool.query(`SELECT t.* FROM ${table} t WHERE ($1::text IS NULL OR id::text>$1) AND row_to_json(t)::text ILIKE '%'||$2||'%' AND ($3::text IS NULL OR row_to_json(t)->>'status'=$3 OR ($4::boolean AND CASE WHEN coalesce(row_to_json(t)->>'banned','false')='true' THEN 'banned' ELSE 'active' END=$3)) ${extra} ORDER BY id LIMIT 101`, filterArgs)).rows;
                     res.writeHead(200, { 'content-type': 'application/json' });
                     return res.end(JSON.stringify({ data: await enrichUsers(rows.slice(0, 100)), nextCursor: rows.length > 100 ? rows[99].id : null }));
+                }
+                if (resource === 'contact' && method === 'PATCH') {
+                    if (!['open', 'resolved'].includes(b.status) || typeof b.note !== 'string' || b.note.length > 10000)
+                        fail(400, 'Invalid contact handling');
+                    const result = await pool.query('UPDATE contact SET status=$1,note=$2,updated_at=now() WHERE id=$3 RETURNING *', [b.status, b.note, id]);
+                    if (!result.rowCount)
+                        fail(404, 'Contact not found');
+                    return send(result.rows[0]);
                 }
                 if (resource === 'reports' && method === 'PATCH') {
                     if (!['reviewed', 'dismissed', 'violation_confirmed'].includes(b.status))
@@ -354,7 +388,7 @@ function createHandler({ pool, auth, origin }: {
             const err = e as any;
             const status = typeof err.status === 'number' ? err.status : ['22P02', '22007', '22008', '23503', '23505', '23514'].includes(err.code) ? 400 : 500;
             res.writeHead(status, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: { requestId:res.getHeader('x-request-id'),code: String(status), message: status === 500 ? 'Internal server error' : typeof err.code==='string'&&/^[0-9A-Z]{5}$/.test(err.code)?'Invalid request data':err.message } }));
+            res.end(JSON.stringify({ error: { requestId: res.getHeader('x-request-id'), code: String(status), message: status === 500 ? 'Internal server error' : typeof err.code === 'string' && /^[0-9A-Z]{5}$/.test(err.code) ? 'Invalid request data' : err.message } }));
         }
     };
 }
@@ -365,12 +399,15 @@ export function createApp(options: {
     origin?: string | string[];
 }) {
     return async (req: IncomingMessage, res: ServerResponse) => {
-        req.url=req.url??'/';
-        const requestId=randomUUID();res.setHeader('x-request-id',requestId);
-        const rawPath=(req.url??'/').split('?')[0];
-        const canonicalPath=new URL(req.url??'/','http://localhost').pathname;
-        if(rawPath!==canonicalPath||canonicalPath.includes('//')||!/^\/api\/v1(?:\/|$)/.test(canonicalPath)){
-            res.writeHead(400,{'content-type':'application/json'});res.end(JSON.stringify({error:{code:'400',message:'Invalid API path',requestId}}));return;
+        req.url = req.url ?? '/';
+        const requestId = randomUUID();
+        res.setHeader('x-request-id', requestId);
+        const rawPath = (req.url ?? '/').split('?')[0];
+        const canonicalPath = new URL(req.url ?? '/', 'http://localhost').pathname;
+        if (rawPath !== canonicalPath || canonicalPath.includes('//') || !/^\/api\/v1(?:\/|$)/.test(canonicalPath)) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: { code: '400', message: 'Invalid API path', requestId } }));
+            return;
         }
         if (!canonicalPath.startsWith('/api/v1/admin/') || ['GET', 'HEAD'].includes(req.method ?? 'GET'))
             return createHandler(options)(req, res);
@@ -380,7 +417,7 @@ export function createApp(options: {
         }
         catch {
             res.writeHead(503, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: {requestId:res.getHeader('x-request-id'), code: '503', message: 'Database unavailable' } }));
+            res.end(JSON.stringify({ error: { requestId: res.getHeader('x-request-id'), code: '503', message: 'Database unavailable' } }));
             return;
         }
         const originalEnd = res.end.bind(res);
@@ -401,12 +438,14 @@ export function createApp(options: {
                 const session = await options.auth.api.getSession({ headers });
                 if (!session)
                     throw new Error('Session expired');
-                const createdId = (() => { try {
-                    return JSON.parse(String(output)).data?.id;
-                }
-                catch {
-                    return undefined;
-                } })();
+                const createdId = (() => {
+                    try {
+                        return JSON.parse(String(output)).data?.id;
+                    }
+                    catch {
+                        return undefined;
+                    }
+                })();
                 const after = await administrativeSnapshot(client, req.url, createdId);
                 await client.query('INSERT INTO audit(id,actor_id,action,target_id,reason,before_data,after_data,request_metadata) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [randomUUID(), session.user.id, req.method + ' ' + req.url, req.url.split('/')[5] ?? createdId ?? null, (req as any).auditReason, before, after, { method: req.method, path: req.url, remoteAddress: req.socket.remoteAddress }]);
                 await client.query('COMMIT');
@@ -419,7 +458,7 @@ export function createApp(options: {
         catch {
             await client.query('ROLLBACK');
             responseStatus = 500;
-            output = JSON.stringify({ error: {requestId:res.getHeader('x-request-id'), code: '500', message: 'Administrative transaction failed' } });
+            output = JSON.stringify({ error: { requestId: res.getHeader('x-request-id'), code: '500', message: 'Administrative transaction failed' } });
         }
         finally {
             client.release();
