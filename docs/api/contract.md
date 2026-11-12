@@ -21,3 +21,9 @@
 管理筛选：users(role,banned)，items(category,publisherId,from,to)，rides(origin,destination,publisherId,date,from,to)，conversations/community-messages(q,from,to)，reports(targetType,targetId,reason,reporterId,from,to)，audit(action,actorId,resource,resourceId,from,to)。from/to 为 YYYY-MM-DD，起止日期均包含。空筛选值忽略。管理创建/编辑商品或拼车支持 publisherId。
 
 联系处理：PATCH /admin/contact/:id {status:open|resolved,note,reason}；事务内记录处理状态与审计。
+
+## 媒体扩展边界
+
+`packages/integrations/src/media.ts` 定义图片／视频的受控上传申请、完成确认、按查看者解析与删除契约。资源使用稳定对象ID及状态，不把任意URL当作可信媒体。首版没有存储适配器实例、不注册上传签名路由、前端不展示入口；后续接入必须补齐类型／体积、所有者、社区和可见性验证。
+
+排序：商品默认 created_at DESC,id DESC；拼车支持 sort=departure_asc|departure_desc，默认 departure_asc，以出发时刻和 ID 稳定排序。nextCursor 为不透明复合游标，翻页必须保持 sort 一致；错误或排序不匹配游标返回400。列表排除软删除内容。
