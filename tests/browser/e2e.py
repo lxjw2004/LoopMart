@@ -7,7 +7,10 @@ def nav(p,name):p.locator('nav').get_by_role('button',name=name,exact=True).clic
 def login(p,u,port=3000):
  p.goto(f'http://localhost:{port}',wait_until='networkidle');p.locator('header').get_by_role('button',name='登录',exact=True).click();p.locator('input[type=email]').fill(u['email']);p.locator('input[type=password]').fill(u['password']);p.get_by_role('button',name='保存',exact=True).click();expect(p.get_by_role('button',name='退出',exact=True)).to_be_visible(timeout=15000)
 def fill(p,vals):
- for k,v in vals.items():p.get_by_label(k,exact=True).fill(str(v))
+ for k,v in vals.items():
+  field=p.get_by_label(k,exact=True)
+  if k=='时区':field.select_option(str(v))
+  else:field.fill(str(v))
 def save(p):p.get_by_role('button',name='保存',exact=True).click();p.wait_for_timeout(700)
 def report(p):
  p.get_by_text('举报',exact=True).click();p.get_by_label('原因',exact=True).select_option('spam');p.get_by_label('补充说明',exact=True).fill(TAG);p.locator('details').get_by_role('button',name='保存',exact=True).click();p.wait_for_timeout(300);clean(p)

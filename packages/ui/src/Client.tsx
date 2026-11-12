@@ -1,81 +1,1316 @@
-'use client';
-import { useEffect, useState, useRef } from 'react';
-import DataForm from './DataForm';
-import Details from './Details';
-import ProfileListings from './ProfileListings';
-import {departureInstant,departureLocal} from './time';
-import { api, auth, conversationMessages } from './api';
-import { labels } from '../../i18n/src';
+"use client";
+import { useEffect, useState, useRef } from "react";
+import DataForm from "./DataForm";
+import Details from "./Details";
+import RideMeta from "./RideMeta";
+import { rideLocations } from "./ride-options";
+import { errorText } from "./errors";
+import ProfileListings from "./ProfileListings";
+import { departureInstant, departureLocal, formatDeparture } from "./time";
+import { api, auth, conversationMessages } from "./api";
+import { labels } from "../../i18n/src";
 type Row = Record<string, any>;
-const itemFields = { title: 'text', description: 'textarea', category: ['clothing', 'books', 'furniture', 'electronics', 'daily', 'other'], priceCents: 'number', condition: ['new', 'like_new', 'good', 'fair'], deliveryMethod: ['pickup', 'meetup', 'delivery'] };
-const rideFields = { origin: 'text', destination: 'text', departureTime: 'datetime-local', timeZone: 'text', feeCents: 'number', totalSeats: 'number', availableSeats: 'number', feeDescription: 'text', notes: 'textarea' };
-export default function Client({ admin = false }: {
-    admin?: boolean;
-}) {
-    const [en, setEn] = useState(false), [page, setPage] = useState(admin ? 'overview' : 'items'), [rows, setRows] = useState<Row[]>([]), [detail, setDetail] = useState<Row | null>(null), [me, setMe] = useState<Row | null>(null), [sessionLoaded,setSessionLoaded]=useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState(''), [query, setQuery] = useState(''), [status, setStatus] = useState(''), [cursor, setCursor] = useState<string | null>(null), [editing, setEditing] = useState(false), [kind, setKind] = useState('items'), [messages, setMessages] = useState<Row[]>([]), [refresh, setRefresh] = useState(0), [mode, setMode] = useState('sign-in/email'), [filters, setFilters] = useState<Row>({}), [reference, setReference] = useState<Row | null>(null),[recipientQuery,setRecipientQuery]=useState(''),[recipientResults,setRecipientResults]=useState<Row[]>([]),[recipient,setRecipient]=useState<Row|null>(null);
-    const loadSeq=useRef(0);const readIds=useRef<Record<string,string>>({});const pendingMessage=useRef<{key:string,id:string}|null>(null);
-    const t = (key: string) => labels[key]?.[en ? 1 : 0] || labels[key.replace(/_([a-z])/g,(_,c:string)=>c.toUpperCase())]?.[en?1:0] || key.replace(/_/g,' ');
-    const say = (zh: string, english: string) => en ? english : zh;
-    async function run(action: () => Promise<any>) { setBusy(true); setError(''); setNotice(''); try {
-        return await action();
+const itemFields = {
+  title: "text",
+  description: "textarea",
+  category: ["clothing", "books", "furniture", "electronics", "daily", "other"],
+  priceCents: "number",
+  condition: ["new", "like_new", "good", "fair"],
+  deliveryMethod: ["pickup", "meetup", "delivery"],
+};
+const rideFields = {
+  origin: "text",
+  destination: "text",
+  departureTime: "datetime-local",
+  timeZone: ["America/Indiana/Indianapolis", "America/Chicago"],
+  feeCents: "number",
+  totalSeats: "number",
+  availableSeats: "number",
+  feeDescription: "text",
+  notes: "textarea",
+};
+export default function Client({ admin = false }: { admin?: boolean }) {
+  const [en, setEn] = useState(false),
+    [page, setPage] = useState(admin ? "overview" : "items"),
+    [rows, setRows] = useState<Row[]>([]),
+    [detail, setDetail] = useState<Row | null>(null),
+    [me, setMe] = useState<Row | null>(null),
+    [sessionLoaded, setSessionLoaded] = useState(false),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<unknown>(null),
+    [notice, setNotice] = useState(""),
+    [query, setQuery] = useState(""),
+    [status, setStatus] = useState(""),
+    [cursor, setCursor] = useState<string | null>(null),
+    [editing, setEditing] = useState(false),
+    [kind, setKind] = useState("items"),
+    [messages, setMessages] = useState<Row[]>([]),
+    [refresh, setRefresh] = useState(0),
+    [mode, setMode] = useState("sign-in/email"),
+    [filters, setFilters] = useState<Row>({}),
+    [reference, setReference] = useState<Row | null>(null),
+    [recipientQuery, setRecipientQuery] = useState(""),
+    [recipientResults, setRecipientResults] = useState<Row[]>([]),
+    [recipient, setRecipient] = useState<Row | null>(null);
+  const loadSeq = useRef(0);
+  const readIds = useRef<Record<string, string>>({});
+  const pendingMessage = useRef<{ key: string; id: string } | null>(null);
+  const t = (key: string) =>
+    labels[key]?.[en ? 1 : 0] ||
+    labels[key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())]?.[
+      en ? 1 : 0
+    ] ||
+    key.replace(/_/g, " ");
+  const say = (zh: string, english: string) => (en ? english : zh);
+  async function run(action: () => Promise<any>) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      return await action();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
     }
-    catch (e) {
-        setError((e as Error).message);
+  }
+  const base = admin ? "/admin/" : "/";
+  useEffect(() => {
+    document.documentElement.lang = en ? "en" : "zh";
+  }, [en]);
+  function go(next: string) {
+    loadSeq.current++;
+    history.replaceState(null, "", "/#" + next);
+    setPage(next);
+    setDetail(null);
+    setEditing(false);
+    setQuery("");
+    setStatus("");
+    setFilters({});
+    setCursor(null);
+    setError("");
+    setNotice("");
+  }
+  useEffect(() => {
+    const segments = location.pathname
+      .split("/")
+      .filter(Boolean)
+      .filter((x) => x !== "admin");
+    if (segments[0] === "profiles" && segments[1]) {
+      setPage("user");
+      api("/profiles/" + encodeURIComponent(segments[1]))
+        .then(setDetail)
+        .catch((e) => setError(e));
+    } else if (segments.length)
+      setPage(
+        admin &&
+          ["auth-settings", "community-admin", "privacy-policy"].includes(
+            segments[0],
+          )
+          ? "settings"
+          : admin && segments[0] === "contact-form"
+            ? "contact"
+            : segments[0],
+      );
+    if (location.hash) setPage(location.hash.slice(1));
+    if (new URLSearchParams(location.search).has("token")) {
+      setPage("login");
+      setMode("reset-password");
     }
-    finally {
-        setBusy(false);
-    } }
-    const base = admin ? '/admin/' : '/';useEffect(()=>{document.documentElement.lang=en?'en':'zh'},[en]);
-    function go(next: string) { loadSeq.current++;history.replaceState(null, '', '/#' + next); setPage(next); setDetail(null); setEditing(false); setQuery(''); setStatus(''); setFilters({}); setCursor(null); setError(''); setNotice(''); }
-    useEffect(() => { const segments=location.pathname.split('/').filter(Boolean).filter(x=>x!=='admin');if(segments[0]==='profiles'&&segments[1]){setPage('user');api('/profiles/'+encodeURIComponent(segments[1])).then(setDetail).catch(e=>setError(e.message))}else if(segments.length)setPage(admin&&['auth-settings','community-admin','privacy-policy'].includes(segments[0])?'settings':admin&&segments[0]==='contact-form'?'contact':segments[0]);if (location.hash)
-        setPage(location.hash.slice(1)); if (new URLSearchParams(location.search).has('token')) {
-        setPage('login');
-        setMode('reset-password');
-    } setEn(localStorage.getItem('loopmart-language') === 'en'); api('/me').then(setMe).catch(() => setMe(null)).finally(()=>setSessionLoaded(true)); }, []);
-    async function load(append = false) {const seq=++loadSeq.current; const result = await api(base + (page === 'profile' ? 'me/'+kind : page === 'privacy' ? 'public/settings' : page === 'contact' && !admin ? 'public/settings' : page) + ('?'+new URLSearchParams(Object.fromEntries(Object.entries({q:query,status,...filters,...(append&&cursor?{cursor}:{})}).filter(([,v])=>String(v).length>0))).toString()));if(seq!==loadSeq.current)return; if (Array.isArray(result)) {
-        setRows(old => append ? [...old, ...result] : result);
-        setCursor(null);
+    setEn(localStorage.getItem("loopmart-language") === "en");
+    api("/me")
+      .then(setMe)
+      .catch(() => setMe(null))
+      .finally(() => setSessionLoaded(true));
+  }, []);
+  async function load(append = false) {
+    const seq = ++loadSeq.current;
+    const result = await api(
+      base +
+        (page === "profile"
+          ? "me/" + kind
+          : page === "privacy"
+            ? "public/settings"
+            : page === "contact" && !admin
+              ? "public/settings"
+              : page) +
+        ("?" +
+          new URLSearchParams(
+            Object.fromEntries(
+              Object.entries({
+                q: query,
+                status,
+                ...filters,
+                ...(append && cursor ? { cursor } : {}),
+              }).filter(([, v]) => String(v).length > 0),
+            ),
+          ).toString()),
+    );
+    if (seq !== loadSeq.current) return;
+    if (Array.isArray(result)) {
+      setRows((old) => (append ? [...old, ...result] : result));
+      setCursor(null);
+    } else if (Array.isArray(result.data)) {
+      setRows((old) => (append ? [...old, ...result.data] : result.data));
+      setCursor(result.nextCursor);
+    } else {
+      setDetail(result);
+      setRows([]);
     }
-    else if (Array.isArray(result.data)) {
-        setRows(old => append ? [...old, ...result.data] : result.data);
-        setCursor(result.nextCursor);
+    const segments = location.pathname
+      .split("/")
+      .filter(Boolean)
+      .filter((x) => x !== "admin");
+    if (segments[0] === page && segments[1]) {
+      const record = await api(
+        base + page + "/" + encodeURIComponent(segments[1]),
+      );
+      setDetail(
+        Array.isArray(record) ? { id: segments[1], messages: record } : record,
+      );
+      if (page === "conversations" && !admin && Array.isArray(record))
+        setMessages(record);
     }
-    else {
-        setDetail(result);
-        setRows([]);
-    }const segments=location.pathname.split('/').filter(Boolean).filter(x=>x!=='admin');if(segments[0]===page&&segments[1]){const record=await api(base+page+'/'+encodeURIComponent(segments[1]));setDetail(Array.isArray(record)?{id:segments[1],messages:record}:record);if(page==='conversations'&&!admin&&Array.isArray(record))setMessages(record)} }
-    useEffect(() => { if (['login', 'publish','user'].includes(page))
-        return; run(() => load()); }, [page, refresh,page==='profile'?kind:null]);
-    useEffect(() => { if (page !== 'conversations' || !me)
-        return; const events = new EventSource('/api/v1/events'); const update = () => { setRefresh(v => v + 1); if (detail?.id)
-        conversationMessages('/conversations/' + detail.id + '/messages').then(async (r) => { const list = r; setMessages(list); if (list.length&&readIds.current[detail.id]!==list.at(-1)!.id){readIds.current[detail.id]=list.at(-1)!.id;await api('/conversations/' + detail.id + '/read', 'PUT', { messageId: list.at(-1)!.id });} }).catch(() => { }); }; ['message', 'conversation', 'read', 'open'].forEach(name => events.addEventListener(name, update)); return () => events.close(); }, [page, me, detail?.id]);
-    async function open(row: Row) { await run(async () => { const data = admin&&['conversations','community-messages'].includes(page)?{...row,messages:await conversationMessages(base+page+'/'+row.id+'/messages')}:page === 'conversations' && !admin ? row : await api(base + (page === 'profile' ? kind : page === 'favorites' ? 'items' : page) + '/' + row.id); setDetail(Array.isArray(data) ? { id: row.id, messages: data } : data); if (page === 'conversations'&&!admin) {
-        const list = await conversationMessages('/conversations/' + row.id + '/messages');
+  }
+  useEffect(() => {
+    if (["login", "publish", "user"].includes(page)) return;
+    run(() => load());
+  }, [page, refresh, page === "profile" ? kind : null]);
+  useEffect(() => {
+    if (page !== "conversations" || !me) return;
+    const events = new EventSource("/api/v1/events");
+    const update = () => {
+      setRefresh((v) => v + 1);
+      if (detail?.id)
+        conversationMessages("/conversations/" + detail.id + "/messages")
+          .then(async (r) => {
+            const list = r;
+            setMessages(list);
+            if (list.length && readIds.current[detail.id] !== list.at(-1)!.id) {
+              readIds.current[detail.id] = list.at(-1)!.id;
+              await api("/conversations/" + detail.id + "/read", "PUT", {
+                messageId: list.at(-1)!.id,
+              });
+            }
+          })
+          .catch(() => {});
+    };
+    ["message", "conversation", "read", "open"].forEach((name) =>
+      events.addEventListener(name, update),
+    );
+    return () => events.close();
+  }, [page, me, detail?.id]);
+  async function open(row: Row) {
+    await run(async () => {
+      const data =
+        admin && ["conversations", "community-messages"].includes(page)
+          ? {
+              ...row,
+              messages: await conversationMessages(
+                base + page + "/" + row.id + "/messages",
+              ),
+            }
+          : page === "conversations" && !admin
+            ? row
+            : await api(
+                base +
+                  (page === "profile"
+                    ? kind
+                    : page === "favorites"
+                      ? "items"
+                      : page) +
+                  "/" +
+                  row.id,
+              );
+      setDetail(Array.isArray(data) ? { id: row.id, messages: data } : data);
+      if (page === "conversations" && !admin) {
+        const list = await conversationMessages(
+          "/conversations/" + row.id + "/messages",
+        );
         const msgs = list;
         setMessages(msgs);
         if (msgs.length)
-            await api('/conversations/' + row.id + '/read', 'PUT', { messageId: msgs.at(-1)!.id });
-    } }); }
-    const nav = admin ? ['overview', 'users', 'items', 'rides', 'conversations', 'reports', 'community-messages', 'contact', 'settings', 'audit'] : ['items', 'rides', 'publish', 'conversations', 'favorites', 'profile', 'contact', 'privacy'];
-    async function write(path: string, method: string, value: Row) { if (admin) {
-        const reason = window.prompt(say('请输入操作原因', 'Enter reason'));
-        if (!reason)throw new Error(say('操作已取消','Action cancelled'));
-        if (!window.confirm(say('确认操作？', 'Confirm this action?')))throw new Error(say('操作已取消','Action cancelled'));
-        value = { ...value, reason };
-    } await api(path, method, value);if(detail?.id&&method==='PATCH')setDetail(await api(path));if(method==='DELETE')setDetail(null); setRefresh(x => x + 1); setEditing(false); }
-    return <><header><strong>LoopMart{admin ? ' Admin' : ''}</strong><nav>{nav.map(x => <button key={x} aria-current={page === x} onClick={() => go(x)}>{t(x)}</button>)}</nav><button onClick={() => { setEn(!en); localStorage.setItem('loopmart-language', en ? 'zh' : 'en'); }}>{en ? '中文' : 'EN'}</button><button onClick={() => go('login')}>{me?.name || t('login')}</button></header><main><h1>{t(page)}</h1>{me?.banned&&<p role="alert" className="error">{say("账号已封禁","Account suspended")}</p>}{me&&!me.emailVerified&&<div className="panel">{say("请验证邮箱以继续","Verify your email to continue")} <button onClick={()=>run(()=>auth("send-verification-email",{email:me.email,callbackURL:location.origin}))}>{say("重发验证邮件","Resend verification")}</button></div>}{error&&<div role="alert" className="error">{error}{!['login','publish'].includes(page)&&!editing&&<button onClick={()=>setRefresh(x=>x+1)}>{say('重试','Retry')}</button>}</div>}{notice && <p role="status">{notice}</p>}{busy && <p role="status">{t('loading')}</p>}
- {page === 'login' ? <><div className="toolbar">{['sign-in/email', 'sign-up/email', 'request-password-reset', 'reset-password', 'send-verification-email', 'change-email'].map(x => <button key={x} onClick={() => setMode(x)}>{({ 'sign-in/email': say('登录', 'Sign in'), 'sign-up/email': say('注册', 'Register'), 'request-password-reset': say('忘记密码', 'Forgot password'), 'reset-password': say('重设密码', 'Reset password'), 'send-verification-email': say('重发验证邮件', 'Resend verification'), 'change-email': say('修改邮箱', 'Change email') } as Row)[x]}</button>)}</div><DataForm t={t} say={say} run={run} busy={busy} kind={kind} fields={mode === 'reset-password' ? { password: 'password' } : mode === 'request-password-reset' || mode === 'send-verification-email' || mode === 'change-email' ? { email: 'email' } : mode === 'sign-up/email' ? { name: 'text', email: 'email', password: 'password' } : { email: 'email', password: 'password' }} submit={async (v) => { await auth(mode, mode === 'reset-password' ? { newPassword: v.password, token: new URLSearchParams(location.search).get('token') } : mode === 'change-email' ? { newEmail: v.email, callbackURL: location.origin } : { ...v, callbackURL: location.origin, redirectTo: location.origin + '?reset=true' }); api('/me').then(setMe).catch(() => { }); }}/>{me && <button onClick={() => run(async () => { await auth('sign-out', {}); setMe(null); })}>{say('退出', 'Sign out')}</button>}</> :
-            !sessionLoaded?<p role="status">{t('loading')}</p>:admin && (!me || me.role !== 'admin') ? <div className="panel">{say('需要管理员权限', 'Administrator access required')} <button onClick={() => go('login')}>{t('login')}</button></div> :
-                !admin&&!me&&['publish','conversations','favorites','profile'].includes(page)?<div className="panel"><button onClick={()=>go('login')}>{t('login')}</button></div>:page === 'publish' || editing ? <><div className="toolbar">{!editing && ['items', 'rides'].map(x => <button key={x} onClick={() => setKind(x)}>{t(x)}</button>)}</div><DataForm t={t} say={say} run={run} busy={busy} kind={kind} key={kind + (detail?.id || 'new')} fields={{ ...(kind === 'items' ? itemFields : rideFields), ...(admin ? { publisherId: 'text' } : {}) }} initial={editing ? detail?.departureTime?{...detail,departureTime:departureLocal(detail.departureTime,detail.timeZone)}:detail||{} : { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }} draft={!editing && !admin} submit={async (v) => { await write(base + kind + (editing && detail?.id ? '/' + detail.id : ''), editing && detail?.id ? 'PATCH' : 'POST', kind === 'rides' ? { ...v, departureTime: departureInstant(v.departureTime,v.timeZone) } : v); go(kind); }}/></> :
-                    page === 'contact' && !admin && detail?.contactEnabled === false ? <p>{say('联系表单暂不可用', 'Contact form unavailable')}</p> : page === 'contact' && !admin ? <DataForm t={t} say={say} run={run} busy={busy} kind={kind} fields={{ email: 'email', subject: 'text', message: 'textarea' }} submit={v => api('/contact', 'POST', v)}/> :
-                        page === 'privacy' ? <article className="panel">{detail?.[en ? 'privacyPolicyEn' : 'privacyPolicyZh'] || say('暂无政策', 'Policy unavailable')}</article> :
-                            page === 'settings' && admin ? <DataForm t={t} say={say} run={run} busy={busy} kind={kind} initial={detail || {}} fields={{ allowedEmailDomains: 'text', allowAllEmailDomains: ['true', 'false'], communityAdminUserId: 'text', privacyPolicyZh: 'textarea', privacyPolicyEn: 'textarea', contactEnabled: ['true', 'false'] }} submit={v => write('/admin/settings', 'PATCH', { ...Object.fromEntries(Object.entries(v).filter(([k,value])=>k!=='communityAdminUserId'||Boolean(value))), allowedEmailDomains: String(v.allowedEmailDomains??'').split(',').map(x => x.trim()).filter(Boolean), allowAllEmailDomains: String(v.allowAllEmailDomains) === 'true', contactEnabled: String(v.contactEnabled) === 'true' })}/> :
-                                page === 'conversations' && !admin ? <div className="chat"><section>{rows.map(r => <button className="card" key={r.id} onClick={() => open(r)}>{r.otherUser?.name} {r.unreadCount > 0 && <b>{r.unreadCount}</b>}<small>{r.lastMessage?.text}</small></button>)}</section><section className="panel">{detail && <><h2>{detail.otherUser?.name}</h2><div className="messages">{messages.map(m => <div className="message" key={m.id}><small>{m.senderId === me?.id ? say('我', 'You') : detail.otherUser?.name} · {new Date(m.createdAt).toLocaleString()}</small><p>{m.text}</p>{m.id === detail.readMessageId && <small>{say('已读至此', 'Read through here')}</small>}{m.reference && <small>{m.reference.type}: {m.reference.id}</small>}</div>)}</div>{reference && <p>{reference.type}: {reference.id} <button onClick={() => setReference(null)}>×</button></p>}<DataForm t={t} say={say} run={run} busy={busy} kind={kind} fields={{ text: 'textarea' }} submit={async (v) => {const key=detail.id+':'+v.text;if(pendingMessage.current?.key!==key)pendingMessage.current={key,id:crypto.randomUUID()}; await api('/conversations/' + detail.id + '/messages', 'POST', { ...v, clientId: pendingMessage.current.id, ...(reference ? { reference } : {}) }); pendingMessage.current=null;const result = await conversationMessages('/conversations/' + detail.id + '/messages'); setMessages(result); }}/><Report type="conversation" id={detail.id}/></>}</section></div> :
-                                    detail && page !== 'overview' && !(page === 'profile' && !detail.id) ? <section className="panel"><button onClick={() => setDetail(null)}>{t('back')}</button><h2>{detail.title || detail.name || [detail.origin, detail.destination].filter(Boolean).join(' → ') || detail.id}</h2>{Object.entries(detail).filter(([k]) => !['id', 'title', 'name'].includes(k)).map(([k, v]) => <div className="detail-field" key={k}><small>{t(k)}</small><Details field={k} value={v} t={t}/></div>)}{page==='user'&&<ProfileListings userId={detail.id} t={t} onOpen={(type,row)=>{go(type);setDetail(row)}}/>}<div className="actions">{['items', 'rides', 'favorites', 'profile'].includes(page) && (admin || detail.publisherId === me?.id) && <><button onClick={() => { setKind(page === 'favorites' ? 'items' : page === 'profile' ? kind : page); setEditing(true); }}>{say('编辑', 'Edit')}</button><button onClick={() => run(() => write(base + (page === 'favorites' ? 'items' : page === 'profile' ? kind : page) + '/' + detail.id, 'DELETE', {}))}>{say('删除', 'Delete')}</button>{(admin || detail.publisherId === me?.id) && ['active', 'deactivated'].includes(detail.status) && <button onClick={() => run(() => write(base + (page === 'favorites' ? 'items' : page === 'profile' ? kind : page) + '/' + detail.id, 'PATCH', { status: detail.status === 'active' ? 'deactivated' : 'active' }))}>{say('切换上下架', 'Toggle listing')}</button>}</>}{!admin && ['items', 'rides'].includes(page) && <><button onClick={() => run(async () => { const c = await api('/conversations', 'POST', { otherUserId: detail.publisherId }); setReference({ type: page === 'items' ? 'item' : 'ride', id: detail.id }); go('conversations'); setDetail({...c,otherUser:{id:detail.publisherId,name:detail.publisherName}}); const ms = await conversationMessages('/conversations/' + c.id + '/messages'); setMessages(ms); })}>{t('conversations')}</button>{page === 'items' && <><button onClick={() => run(() => api('/favorites/' + detail.id, 'PUT'))}>{t('favorites')}</button><button onClick={() => run(() => api('/favorites/' + detail.id, 'DELETE'))}>{say('取消收藏', 'Remove favorite')}</button></>}<button onClick={() => run(async () => { setDetail(await api('/profiles/' + detail.publisherId)); setPage('user'); })}>{say('发布者资料', 'Publisher profile')}</button></>}</div>{!admin && <Report type={page === 'user' ? 'user' : page === 'rides'||page==='profile'&&kind==='rides' ? 'ride' : 'item'} id={detail.id}/>}{admin&&['items','rides'].includes(page)&&<DataForm t={t} say={say} run={run} busy={busy} kind={kind} initial={{status:detail.status}} fields={{status:['active','deactivated','reported','deactivated_violation']}} submit={v=>write('/admin/'+page+'/'+detail.id,'PATCH',v)}/ >}{admin && page === 'users' && <><DataForm t={t} say={say} run={run} busy={busy} kind={kind} initial={detail} fields={{ name: 'text', role: ['member', 'admin'], banned: ['true', 'false'] }} submit={v => write('/admin/users/' + detail.id, 'PATCH', { ...v, banned: String(v.banned) === 'true' })}/><DataForm t={t} say={say} run={run} busy={busy} kind={kind} fields={{ password: 'password' }} submit={v => write('/admin/users/' + detail.id + '/password', 'POST', v)}/><button onClick={() => run(() => write('/admin/users/' + detail.id + '/reset-password', 'POST', {}))}>{say('发送密码重置', 'Send password reset')}</button></>}{admin&&page==='contact'&&<DataForm t={t} say={say} run={run} busy={busy} kind={kind} initial={{status:detail.status||'open',note:detail.note||''}} fields={{status:['open','resolved'],note:'textarea'}} submit={v=>write('/admin/contact/'+detail.id,'PATCH',v)}/ >}{admin && page === 'reports' && <DataForm t={t} say={say} run={run} busy={busy} kind={kind} fields={{ status: ['reviewed', 'dismissed', 'violation_confirmed'], note: 'textarea' }} submit={v => write('/admin/reports/' + detail.id, 'PATCH', v)}/>}</section> :
-                                        <>{page === 'profile' && <><button onClick={()=>run(async()=>{const settings=await api('/public/settings');if(!settings.communityAdminUserId)throw new Error(say('未设置社区管理员','Community administrator unavailable'));const c=await api('/conversations','POST',{otherUserId:settings.communityAdminUserId});go('conversations');setDetail({...c,otherUser:await api('/profiles/'+settings.communityAdminUserId)});setMessages(await conversationMessages('/conversations/'+c.id+'/messages'));})}>{say('联系社区管理员','Contact community administrator')}</button><DataForm t={t} say={say} run={run} busy={busy} kind={kind} initial={me || {}} fields={{ name: 'text' }} submit={async v=>{await api('/me','PATCH',v);setMe(await api('/me'))}}/><div className="actions"><button aria-pressed={kind==='items'} onClick={()=>{setKind('items');setCursor(null);setDetail(null)}}>{t('items')}</button><button aria-pressed={kind==='rides'} onClick={()=>{setKind('rides');setCursor(null);setDetail(null)}}>{t('rides')}</button></div></>}{page === 'overview' ? <section className="grid">{Object.entries(detail || {}).map(([k, v]) => <article className="card" key={k}><small>{t(k)}</small><b>{String(v)}</b></article>)}</section> : <><form className="toolbar" onSubmit={e => { e.preventDefault(); run(() => load()); }}><input aria-label={t('search')} placeholder={t('search')} value={query} onChange={e => setQuery(e.target.value)}/>{(admin||page==='profile')&&<select aria-label={t('status')} value={status} onChange={e => setStatus(e.target.value)}>{(page==='contact'?['','open','resolved']:page==='users'?['','active','banned']:page==='reports'?['','pending','reviewed','dismissed','violation_confirmed']:['','active','deactivated','reported','deactivated_violation']).map(x => <option key={x} value={x}>{x ? t(x) : say('全部', 'All')}</option>)}</select>}{(admin ? page==='users'?['role','banned']:page==='reports'?['targetType','reason','targetId','reporterId','from','to']:page==='audit'?['action','actorId','resource','resourceId','from','to']:page==='items'?['category','publisherId','from','to']:page==='rides'?['origin','destination','publisherId','date','from','to']:page==='conversations'||page==='community-messages'?['from','to']:[] : page === 'items' ? ['category'] : page === 'rides' ? ['origin', 'destination', 'date'] : []).map(k => {const options=({category:itemFields.category,role:['member','admin'],banned:['true','false'],targetType:['item','ride','user','conversation']} as Record<string,string[]>)[k];return options?<select key={k} aria-label={t(k)} value={filters[k]||''} onChange={e=>setFilters({...filters,[k]:e.target.value})}><option value="">{t(k)}</option>{options.map(x=><option value={x} key={x}>{t(x)}</option>)}</select>:<input key={k} aria-label={t(k)} placeholder={t(k)} type={k==='date'||k==='from'||k==='to'?'date':'text'} value={filters[k]||''} onChange={e=>setFilters({...filters,[k]:e.target.value})}/>})}<button>{t('search')}</button></form>{admin && ['items', 'rides'].includes(page) && <button onClick={() => { setKind(page); setDetail(null); setEditing(true); }}>{say('创建', 'Create')}</button>}{admin && page === 'users' && <details><summary>{say('创建用户', 'Create user')}</summary><DataForm t={t} say={say} run={run} busy={busy} kind={kind} fields={{ email: 'email', name: 'text', password: 'password' }} submit={v => write('/admin/users', 'POST', v)}/></details>}{admin&&page==='community-messages'&&<section className="panel"><div className="toolbar"><input aria-label={say('搜索用户','Search users')} placeholder={say('搜索用户','Search users')} value={recipientQuery} onChange={e=>setRecipientQuery(e.target.value)}/><button onClick={()=>run(async()=>{const result=await api('/admin/users?q='+encodeURIComponent(recipientQuery));setRecipientResults(Array.isArray(result)?result:result.data||[])})}>{t('search')}</button></div><div className="actions">{recipientResults.map(r=><button key={r.id} onClick={()=>setRecipient(r)}>{r.name} · {r.email}</button>)}</div>{recipient&&<p>{recipient.name} · {recipient.email}</p>}<DataForm t={t} say={say} run={run} busy={busy} kind={kind} initial={{userId:recipient?.id||''}} fields={{userId:'text',text:'textarea'}} submit={v=>write('/admin/community-messages','POST',v)}/></section>}<section className="grid">{rows.map(r => <button className="card" key={r.id} onClick={() => open(r)}><small>{t(r.category || r.status || r.role || '')}</small><b>{r.title || r.name || r.subject || r.otherUser?.name || [r.origin, r.destination].filter(Boolean).join(' → ') || r.id}</b>{(r.priceCents !== undefined || r.feeCents !== undefined) && <b>${((r.priceCents ?? r.feeCents) / 100).toFixed(2)}</b>}<span>{r.description || r.lastMessage?.text || r.action}</span><small>{r.publisherName || r.email || r.createdAt && new Date(r.createdAt).toLocaleDateString()}</small></button>)}</section>{!busy && !rows.length && <p>{t('empty')}</p>}{cursor && <button onClick={() => run(() => load(true))}>{say('加载更多', 'Load more')}</button>}</>}</>}
- </main></>;
-    function Report({ type, id }: {
-        type: string;
-        id: string;
-    }) { return <details><summary>{say('举报', 'Report')}</summary><DataForm t={t} say={say} run={run} busy={busy} kind={kind} fields={{ reason: ['spam', 'fraud', 'inappropriate', 'other'], details: 'textarea' }} submit={v => api('/reports', 'POST', { ...v, targetType: type, targetId: id })}/></details>; }
+          await api("/conversations/" + row.id + "/read", "PUT", {
+            messageId: msgs.at(-1)!.id,
+          });
+      }
+    });
+  }
+  const nav = admin
+    ? [
+        "overview",
+        "users",
+        "items",
+        "rides",
+        "conversations",
+        "reports",
+        "community-messages",
+        "contact",
+        "settings",
+        "audit",
+      ]
+    : [
+        "items",
+        "rides",
+        "publish",
+        "conversations",
+        "favorites",
+        "profile",
+        "contact",
+        "privacy",
+      ];
+  async function write(path: string, method: string, value: Row) {
+    if (admin) {
+      const reason = window.prompt(say("请输入操作原因", "Enter reason"));
+      if (!reason) throw new Error(say("操作已取消", "Action cancelled"));
+      if (!window.confirm(say("确认操作？", "Confirm this action?")))
+        throw new Error(say("操作已取消", "Action cancelled"));
+      value = { ...value, reason };
+    }
+    await api(path, method, value);
+    if (detail?.id && method === "PATCH") setDetail(await api(path));
+    if (method === "DELETE") setDetail(null);
+    setRefresh((x) => x + 1);
+    setEditing(false);
+  }
+  return (
+    <>
+      <header>
+        <strong>LoopMart{admin ? " Admin" : ""}</strong>
+        <nav>
+          {nav.map((x) => (
+            <button key={x} aria-current={page === x} onClick={() => go(x)}>
+              {t(x)}
+            </button>
+          ))}
+        </nav>
+        <button
+          onClick={() => {
+            setEn(!en);
+            localStorage.setItem("loopmart-language", en ? "zh" : "en");
+          }}
+        >
+          {en ? "中文" : "EN"}
+        </button>
+        <button onClick={() => go("login")}>{me?.name || t("login")}</button>
+      </header>
+      <main>
+        <h1>{t(page)}</h1>
+        {me?.banned && (
+          <p role="alert" className="error">
+            {say("账号已封禁", "Account suspended")}
+          </p>
+        )}
+        {me && !me.emailVerified && (
+          <div className="panel">
+            {say("请验证邮箱以继续", "Verify your email to continue")}{" "}
+            <button
+              onClick={() =>
+                run(() =>
+                  auth("send-verification-email", {
+                    email: me.email,
+                    callbackURL: location.origin,
+                  }),
+                )
+              }
+            >
+              {say("重发验证邮件", "Resend verification")}
+            </button>
+          </div>
+        )}
+        {Boolean(error) && (
+          <div role="alert" className="error">
+            {errorText(error, en)}
+            {!["login", "publish"].includes(page) && !editing && (
+              <button onClick={() => setRefresh((x) => x + 1)}>
+                {say("重试", "Retry")}
+              </button>
+            )}
+          </div>
+        )}
+        {notice && <p role="status">{notice}</p>}
+        {busy && <p role="status">{t("loading")}</p>}
+        {page === "login" ? (
+          <>
+            <div className="toolbar">
+              {[
+                "sign-in/email",
+                "sign-up/email",
+                "request-password-reset",
+                "reset-password",
+                "send-verification-email",
+                "change-email",
+              ].map((x) => (
+                <button key={x} onClick={() => setMode(x)}>
+                  {
+                    (
+                      {
+                        "sign-in/email": say("登录", "Sign in"),
+                        "sign-up/email": say("注册", "Register"),
+                        "request-password-reset": say(
+                          "忘记密码",
+                          "Forgot password",
+                        ),
+                        "reset-password": say("重设密码", "Reset password"),
+                        "send-verification-email": say(
+                          "重发验证邮件",
+                          "Resend verification",
+                        ),
+                        "change-email": say("修改邮箱", "Change email"),
+                      } as Row
+                    )[x]
+                  }
+                </button>
+              ))}
+            </div>
+            <DataForm
+              t={t}
+              say={say}
+              run={run}
+              busy={busy}
+              kind={kind}
+              fields={
+                mode === "reset-password"
+                  ? { password: "password" }
+                  : mode === "request-password-reset" ||
+                      mode === "send-verification-email" ||
+                      mode === "change-email"
+                    ? { email: "email" }
+                    : mode === "sign-up/email"
+                      ? { name: "text", email: "email", password: "password" }
+                      : { email: "email", password: "password" }
+              }
+              submit={async (v) => {
+                await auth(
+                  mode,
+                  mode === "reset-password"
+                    ? {
+                        newPassword: v.password,
+                        token: new URLSearchParams(location.search).get(
+                          "token",
+                        ),
+                      }
+                    : mode === "change-email"
+                      ? { newEmail: v.email, callbackURL: location.origin }
+                      : {
+                          ...v,
+                          callbackURL: location.origin,
+                          redirectTo: location.origin + "?reset=true",
+                        },
+                );
+                api("/me")
+                  .then(setMe)
+                  .catch(() => {});
+              }}
+            />
+            {me && (
+              <button
+                onClick={() =>
+                  run(async () => {
+                    await auth("sign-out", {});
+                    setMe(null);
+                  })
+                }
+              >
+                {say("退出", "Sign out")}
+              </button>
+            )}
+          </>
+        ) : !sessionLoaded ? (
+          <p role="status">{t("loading")}</p>
+        ) : admin && (!me || me.role !== "admin") ? (
+          <div className="panel">
+            {say("需要管理员权限", "Administrator access required")}{" "}
+            <button onClick={() => go("login")}>{t("login")}</button>
+          </div>
+        ) : !admin &&
+          !me &&
+          ["publish", "conversations", "favorites", "profile"].includes(
+            page,
+          ) ? (
+          <div className="panel">
+            <button onClick={() => go("login")}>{t("login")}</button>
+          </div>
+        ) : page === "publish" || editing ? (
+          <>
+            <div className="toolbar">
+              {!editing &&
+                ["items", "rides"].map((x) => (
+                  <button key={x} onClick={() => setKind(x)}>
+                    {t(x)}
+                  </button>
+                ))}
+            </div>
+            <DataForm
+              t={t}
+              say={say}
+              run={run}
+              busy={busy}
+              kind={kind}
+              key={kind + (detail?.id || "new") + me?.id}
+              ownerId={me?.id}
+              fields={{
+                ...(kind === "items" ? itemFields : rideFields),
+                ...(admin ? { publisherId: "text" } : {}),
+              }}
+              initial={
+                editing
+                  ? detail?.departureTime
+                    ? {
+                        ...detail,
+                        departureTime: departureLocal(
+                          detail.departureTime,
+                          detail.timeZone,
+                        ),
+                      }
+                    : detail || {}
+                  : {
+                      timeZone: "America/Indiana/Indianapolis",
+                    }
+              }
+              draft={!editing && !admin}
+              submit={async (v) => {
+                await write(
+                  base + kind + (editing && detail?.id ? "/" + detail.id : ""),
+                  editing && detail?.id ? "PATCH" : "POST",
+                  kind === "rides"
+                    ? {
+                        ...v,
+                        departureTime: departureInstant(
+                          v.departureTime,
+                          v.timeZone,
+                        ),
+                      }
+                    : v,
+                );
+                go(kind);
+              }}
+            />
+          </>
+        ) : page === "contact" && !admin && detail?.contactEnabled === false ? (
+          <p>{say("联系表单暂不可用", "Contact form unavailable")}</p>
+        ) : page === "contact" && !admin ? (
+          <DataForm
+            t={t}
+            say={say}
+            run={run}
+            busy={busy}
+            kind={kind}
+            fields={{ email: "email", subject: "text", message: "textarea" }}
+            submit={(v) => api("/contact", "POST", v)}
+          />
+        ) : page === "privacy" ? (
+          <article className="panel">
+            {detail?.[en ? "privacyPolicyEn" : "privacyPolicyZh"] ||
+              say("暂无政策", "Policy unavailable")}
+          </article>
+        ) : page === "settings" && admin ? (
+          <DataForm
+            t={t}
+            say={say}
+            run={run}
+            busy={busy}
+            kind={kind}
+            initial={detail || {}}
+            fields={{
+              allowedEmailDomains: "text",
+              allowAllEmailDomains: ["true", "false"],
+              communityAdminUserId: "text",
+              privacyPolicyZh: "textarea",
+              privacyPolicyEn: "textarea",
+              contactEnabled: ["true", "false"],
+            }}
+            submit={(v) =>
+              write("/admin/settings", "PATCH", {
+                ...Object.fromEntries(
+                  Object.entries(v).filter(
+                    ([k, value]) =>
+                      k !== "communityAdminUserId" || Boolean(value),
+                  ),
+                ),
+                allowedEmailDomains: String(v.allowedEmailDomains ?? "")
+                  .split(",")
+                  .map((x) => x.trim())
+                  .filter(Boolean),
+                allowAllEmailDomains: String(v.allowAllEmailDomains) === "true",
+                contactEnabled: String(v.contactEnabled) === "true",
+              })
+            }
+          />
+        ) : page === "conversations" && !admin ? (
+          <div className="chat">
+            <section>
+              {rows.map((r) => (
+                <button className="card" key={r.id} onClick={() => open(r)}>
+                  {r.otherUser?.name}{" "}
+                  {r.unreadCount > 0 && <b>{r.unreadCount}</b>}
+                  <small>{r.lastMessage?.text}</small>
+                </button>
+              ))}
+            </section>
+            <section className="panel">
+              {detail && (
+                <>
+                  <h2>{detail.otherUser?.name}</h2>
+                  <div className="messages">
+                    {messages.map((m) => (
+                      <div className="message" key={m.id}>
+                        <small>
+                          {m.senderId === me?.id
+                            ? say("我", "You")
+                            : detail.otherUser?.name}{" "}
+                          · {new Date(m.createdAt).toLocaleString()}
+                        </small>
+                        <p>{m.text}</p>
+                        {m.id === detail.readMessageId && (
+                          <small>{say("已读至此", "Read through here")}</small>
+                        )}
+                        {m.reference && (
+                          <small>
+                            {m.reference.type}: {m.reference.id}
+                          </small>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {reference && (
+                    <p>
+                      {reference.type}: {reference.id}{" "}
+                      <button onClick={() => setReference(null)}>×</button>
+                    </p>
+                  )}
+                  <DataForm
+                    t={t}
+                    say={say}
+                    run={run}
+                    busy={busy}
+                    kind={kind}
+                    fields={{ text: "textarea" }}
+                    submit={async (v) => {
+                      const key = detail.id + ":" + v.text;
+                      if (pendingMessage.current?.key !== key)
+                        pendingMessage.current = {
+                          key,
+                          id: crypto.randomUUID(),
+                        };
+                      await api(
+                        "/conversations/" + detail.id + "/messages",
+                        "POST",
+                        {
+                          ...v,
+                          clientId: pendingMessage.current.id,
+                          ...(reference ? { reference } : {}),
+                        },
+                      );
+                      pendingMessage.current = null;
+                      const result = await conversationMessages(
+                        "/conversations/" + detail.id + "/messages",
+                      );
+                      setMessages(result);
+                    }}
+                  />
+                  <Report type="conversation" id={detail.id} />
+                </>
+              )}
+            </section>
+          </div>
+        ) : detail &&
+          page !== "overview" &&
+          !(page === "profile" && !detail.id) ? (
+          <section className="panel">
+            <button onClick={() => setDetail(null)}>{t("back")}</button>
+            <h2>
+              {detail.title ||
+                detail.name ||
+                [detail.origin, detail.destination]
+                  .filter(Boolean)
+                  .join(" → ") ||
+                detail.id}
+            </h2>
+            {Object.entries(detail)
+              .filter(
+                ([k]) =>
+                  !["id", "title", "name"].includes(k) &&
+                  (admin ||
+                    [
+                      "description",
+                      "category",
+                      "priceCents",
+                      "condition",
+                      "deliveryMethod",
+                      "publisherName",
+                      "status",
+                      "createdAt",
+                      "origin",
+                      "destination",
+                      "departureTime",
+                      "timeZone",
+                      "feeCents",
+                      "totalSeats",
+                      "availableSeats",
+                      "feeDescription",
+                      "notes",
+                    ].includes(k)),
+              )
+              .map(([k, v]) => (
+                <div className="detail-field" key={k}>
+                  <small>{t(k)}</small>
+                  {k === "departureTime" && detail.timeZone ? (
+                    <time dateTime={String(v)}>
+                      {formatDeparture(String(v), detail.timeZone, en)}
+                    </time>
+                  ) : k === "createdAt" ? (
+                    <span>
+                      {new Date(String(v)).toLocaleString(
+                        en ? "en-US" : "zh-CN",
+                      )}
+                    </span>
+                  ) : (
+                    <Details field={k} value={v} t={t} />
+                  )}
+                </div>
+              ))}
+            {page === "user" && (
+              <ProfileListings
+                english={en}
+                userId={detail.id}
+                t={t}
+                onOpen={(type, row) => {
+                  go(type);
+                  setDetail(row);
+                }}
+              />
+            )}
+            <div className="actions">
+              {["items", "rides", "favorites", "profile"].includes(page) &&
+                (admin || detail.publisherId === me?.id) && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setKind(
+                          page === "favorites"
+                            ? "items"
+                            : page === "profile"
+                              ? kind
+                              : page,
+                        );
+                        setEditing(true);
+                      }}
+                    >
+                      {say("编辑", "Edit")}
+                    </button>
+                    <button
+                      onClick={() =>
+                        run(() =>
+                          write(
+                            base +
+                              (page === "favorites"
+                                ? "items"
+                                : page === "profile"
+                                  ? kind
+                                  : page) +
+                              "/" +
+                              detail.id,
+                            "DELETE",
+                            {},
+                          ),
+                        )
+                      }
+                    >
+                      {say("删除", "Delete")}
+                    </button>
+                    {(admin || detail.publisherId === me?.id) &&
+                      ["active", "deactivated"].includes(detail.status) && (
+                        <button
+                          onClick={() =>
+                            run(() =>
+                              write(
+                                base +
+                                  (page === "favorites"
+                                    ? "items"
+                                    : page === "profile"
+                                      ? kind
+                                      : page) +
+                                  "/" +
+                                  detail.id,
+                                "PATCH",
+                                {
+                                  status:
+                                    detail.status === "active"
+                                      ? "deactivated"
+                                      : "active",
+                                },
+                              ),
+                            )
+                          }
+                        >
+                          {say("切换上下架", "Toggle listing")}
+                        </button>
+                      )}
+                  </>
+                )}
+              {!admin && ["items", "rides"].includes(page) && (
+                <>
+                  <button
+                    onClick={() =>
+                      run(async () => {
+                        const c = await api("/conversations", "POST", {
+                          otherUserId: detail.publisherId,
+                        });
+                        setReference({
+                          type: page === "items" ? "item" : "ride",
+                          id: detail.id,
+                        });
+                        go("conversations");
+                        setDetail({
+                          ...c,
+                          otherUser: {
+                            id: detail.publisherId,
+                            name: detail.publisherName,
+                          },
+                        });
+                        const ms = await conversationMessages(
+                          "/conversations/" + c.id + "/messages",
+                        );
+                        setMessages(ms);
+                      })
+                    }
+                  >
+                    {t("conversations")}
+                  </button>
+                  {page === "items" && (
+                    <>
+                      <button
+                        onClick={() =>
+                          run(() => api("/favorites/" + detail.id, "PUT"))
+                        }
+                      >
+                        {t("favorites")}
+                      </button>
+                      <button
+                        onClick={() =>
+                          run(() => api("/favorites/" + detail.id, "DELETE"))
+                        }
+                      >
+                        {say("取消收藏", "Remove favorite")}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() =>
+                      run(async () => {
+                        setDetail(await api("/profiles/" + detail.publisherId));
+                        setPage("user");
+                      })
+                    }
+                  >
+                    {say("发布者资料", "Publisher profile")}
+                  </button>
+                </>
+              )}
+            </div>
+            {!admin && (
+              <Report
+                type={
+                  page === "user"
+                    ? "user"
+                    : page === "rides" ||
+                        (page === "profile" && kind === "rides")
+                      ? "ride"
+                      : "item"
+                }
+                id={detail.id}
+              />
+            )}
+            {admin && ["items", "rides"].includes(page) && (
+              <DataForm
+                t={t}
+                say={say}
+                run={run}
+                busy={busy}
+                kind={kind}
+                initial={{ status: detail.status }}
+                fields={{
+                  status: [
+                    "active",
+                    "deactivated",
+                    "reported",
+                    "deactivated_violation",
+                  ],
+                }}
+                submit={(v) =>
+                  write("/admin/" + page + "/" + detail.id, "PATCH", v)
+                }
+              />
+            )}
+            {admin && page === "users" && (
+              <>
+                <DataForm
+                  t={t}
+                  say={say}
+                  run={run}
+                  busy={busy}
+                  kind={kind}
+                  initial={detail}
+                  fields={{
+                    name: "text",
+                    role: ["member", "admin"],
+                    banned: ["true", "false"],
+                  }}
+                  submit={(v) =>
+                    write("/admin/users/" + detail.id, "PATCH", {
+                      ...v,
+                      banned: String(v.banned) === "true",
+                    })
+                  }
+                />
+                <DataForm
+                  t={t}
+                  say={say}
+                  run={run}
+                  busy={busy}
+                  kind={kind}
+                  fields={{ password: "password" }}
+                  submit={(v) =>
+                    write("/admin/users/" + detail.id + "/password", "POST", v)
+                  }
+                />
+                <button
+                  onClick={() =>
+                    run(() =>
+                      write(
+                        "/admin/users/" + detail.id + "/reset-password",
+                        "POST",
+                        {},
+                      ),
+                    )
+                  }
+                >
+                  {say("发送密码重置", "Send password reset")}
+                </button>
+              </>
+            )}
+            {admin && page === "contact" && (
+              <DataForm
+                t={t}
+                say={say}
+                run={run}
+                busy={busy}
+                kind={kind}
+                initial={{
+                  status: detail.status || "open",
+                  note: detail.note || "",
+                }}
+                fields={{ status: ["open", "resolved"], note: "textarea" }}
+                submit={(v) => write("/admin/contact/" + detail.id, "PATCH", v)}
+              />
+            )}
+            {admin && page === "reports" && (
+              <DataForm
+                t={t}
+                say={say}
+                run={run}
+                busy={busy}
+                kind={kind}
+                fields={{
+                  status: ["reviewed", "dismissed", "violation_confirmed"],
+                  note: "textarea",
+                }}
+                submit={(v) => write("/admin/reports/" + detail.id, "PATCH", v)}
+              />
+            )}
+          </section>
+        ) : (
+          <>
+            {page === "profile" && (
+              <>
+                <button
+                  onClick={() =>
+                    run(async () => {
+                      const settings = await api("/public/settings");
+                      if (!settings.communityAdminUserId)
+                        throw new Error(
+                          say(
+                            "未设置社区管理员",
+                            "Community administrator unavailable",
+                          ),
+                        );
+                      const c = await api("/conversations", "POST", {
+                        otherUserId: settings.communityAdminUserId,
+                      });
+                      go("conversations");
+                      setDetail({
+                        ...c,
+                        otherUser: await api(
+                          "/profiles/" + settings.communityAdminUserId,
+                        ),
+                      });
+                      setMessages(
+                        await conversationMessages(
+                          "/conversations/" + c.id + "/messages",
+                        ),
+                      );
+                    })
+                  }
+                >
+                  {say("联系社区管理员", "Contact community administrator")}
+                </button>
+                <DataForm
+                  t={t}
+                  say={say}
+                  run={run}
+                  busy={busy}
+                  kind={kind}
+                  initial={me || {}}
+                  fields={{ name: "text" }}
+                  submit={async (v) => {
+                    await api("/me", "PATCH", v);
+                    setMe(await api("/me"));
+                  }}
+                />
+                <div className="actions">
+                  <button
+                    aria-pressed={kind === "items"}
+                    onClick={() => {
+                      setKind("items");
+                      setCursor(null);
+                      setDetail(null);
+                    }}
+                  >
+                    {t("items")}
+                  </button>
+                  <button
+                    aria-pressed={kind === "rides"}
+                    onClick={() => {
+                      setKind("rides");
+                      setCursor(null);
+                      setDetail(null);
+                    }}
+                  >
+                    {t("rides")}
+                  </button>
+                </div>
+              </>
+            )}
+            {page === "overview" ? (
+              <section className="grid">
+                {Object.entries(detail || {}).map(([k, v]) => (
+                  <article className="card" key={k}>
+                    <small>{t(k)}</small>
+                    <b>{String(v)}</b>
+                  </article>
+                ))}
+              </section>
+            ) : (
+              <>
+                <form
+                  className="toolbar"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    run(() => load());
+                  }}
+                >
+                  <input
+                    aria-label={t("search")}
+                    placeholder={t("search")}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  {(admin || page === "profile") && (
+                    <select
+                      aria-label={t("status")}
+                      value={status}
+                      onChange={(e) => setStatus(e.target.value)}
+                    >
+                      {(page === "contact"
+                        ? ["", "open", "resolved"]
+                        : page === "users"
+                          ? ["", "active", "banned"]
+                          : page === "reports"
+                            ? [
+                                "",
+                                "pending",
+                                "reviewed",
+                                "dismissed",
+                                "violation_confirmed",
+                              ]
+                            : [
+                                "",
+                                "active",
+                                "deactivated",
+                                "reported",
+                                "deactivated_violation",
+                              ]
+                      ).map((x) => (
+                        <option key={x} value={x}>
+                          {x ? t(x) : say("全部", "All")}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {(admin
+                    ? page === "users"
+                      ? ["role", "banned"]
+                      : page === "reports"
+                        ? [
+                            "targetType",
+                            "reason",
+                            "targetId",
+                            "reporterId",
+                            "from",
+                            "to",
+                          ]
+                        : page === "audit"
+                          ? [
+                              "action",
+                              "actorId",
+                              "resource",
+                              "resourceId",
+                              "from",
+                              "to",
+                            ]
+                          : page === "items"
+                            ? ["category", "publisherId", "from", "to"]
+                            : page === "rides"
+                              ? [
+                                  "origin",
+                                  "destination",
+                                  "publisherId",
+                                  "date",
+                                  "from",
+                                  "to",
+                                ]
+                              : page === "conversations" ||
+                                  page === "community-messages"
+                                ? ["from", "to"]
+                                : []
+                    : page === "items"
+                      ? ["category"]
+                      : page === "rides"
+                        ? ["origin", "destination", "date"]
+                        : []
+                  ).map((k) => {
+                    const options = (
+                      {
+                        category: itemFields.category,
+                        role: ["member", "admin"],
+                        banned: ["true", "false"],
+                        targetType: ["item", "ride", "user", "conversation"],
+                      } as Record<string, string[]>
+                    )[k];
+                    return options ? (
+                      <select
+                        key={k}
+                        aria-label={t(k)}
+                        value={filters[k] || ""}
+                        onChange={(e) =>
+                          setFilters({ ...filters, [k]: e.target.value })
+                        }
+                      >
+                        <option value="">{t(k)}</option>
+                        {options.map((x) => (
+                          <option value={x} key={x}>
+                            {t(x)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        key={k}
+                        list={
+                          k === "origin" || k === "destination"
+                            ? "filter-ride-locations"
+                            : undefined
+                        }
+                        aria-label={t(k)}
+                        placeholder={t(k)}
+                        type={
+                          k === "date" || k === "from" || k === "to"
+                            ? "date"
+                            : "text"
+                        }
+                        value={filters[k] || ""}
+                        onChange={(e) =>
+                          setFilters({ ...filters, [k]: e.target.value })
+                        }
+                      />
+                    );
+                  })}
+                  {page === "rides" && (
+                    <>
+                      <datalist id="filter-ride-locations">
+                        {rideLocations.map((location) => (
+                          <option key={location} value={location} />
+                        ))}
+                      </datalist>
+                      <select
+                        aria-label={t("sort")}
+                        value={filters.sort || "departure_asc"}
+                        onChange={(e) => {
+                          setCursor(null);
+                          setFilters({ ...filters, sort: e.target.value });
+                        }}
+                      >
+                        <option value="departure_asc">
+                          {t("departure_asc")}
+                        </option>
+                        <option value="departure_desc">
+                          {t("departure_desc")}
+                        </option>
+                      </select>
+                    </>
+                  )}
+                  <button>{t("search")}</button>
+                </form>
+                {admin && ["items", "rides"].includes(page) && (
+                  <button
+                    onClick={() => {
+                      setKind(page);
+                      setDetail(null);
+                      setEditing(true);
+                    }}
+                  >
+                    {say("创建", "Create")}
+                  </button>
+                )}
+                {admin && page === "users" && (
+                  <details>
+                    <summary>{say("创建用户", "Create user")}</summary>
+                    <DataForm
+                      t={t}
+                      say={say}
+                      run={run}
+                      busy={busy}
+                      kind={kind}
+                      fields={{
+                        email: "email",
+                        name: "text",
+                        password: "password",
+                      }}
+                      submit={(v) => write("/admin/users", "POST", v)}
+                    />
+                  </details>
+                )}
+                {admin && page === "community-messages" && (
+                  <section className="panel">
+                    <div className="toolbar">
+                      <input
+                        aria-label={say("搜索用户", "Search users")}
+                        placeholder={say("搜索用户", "Search users")}
+                        value={recipientQuery}
+                        onChange={(e) => setRecipientQuery(e.target.value)}
+                      />
+                      <button
+                        onClick={() =>
+                          run(async () => {
+                            const result = await api(
+                              "/admin/users?q=" +
+                                encodeURIComponent(recipientQuery),
+                            );
+                            setRecipientResults(
+                              Array.isArray(result)
+                                ? result
+                                : result.data || [],
+                            );
+                          })
+                        }
+                      >
+                        {t("search")}
+                      </button>
+                    </div>
+                    <div className="actions">
+                      {recipientResults.map((r) => (
+                        <button key={r.id} onClick={() => setRecipient(r)}>
+                          {r.name} · {r.email}
+                        </button>
+                      ))}
+                    </div>
+                    {recipient && (
+                      <p>
+                        {recipient.name} · {recipient.email}
+                      </p>
+                    )}
+                    <DataForm
+                      t={t}
+                      say={say}
+                      run={run}
+                      busy={busy}
+                      kind={kind}
+                      initial={{ userId: recipient?.id || "" }}
+                      fields={{ userId: "text", text: "textarea" }}
+                      submit={(v) =>
+                        write("/admin/community-messages", "POST", v)
+                      }
+                    />
+                  </section>
+                )}
+                <section className="grid">
+                  {rows.map((r) => (
+                    <button className="card" key={r.id} onClick={() => open(r)}>
+                      <small>{t(r.category || r.status || r.role || "")}</small>
+                      <b>
+                        {r.title ||
+                          r.name ||
+                          r.subject ||
+                          r.otherUser?.name ||
+                          [r.origin, r.destination]
+                            .filter(Boolean)
+                            .join(" → ") ||
+                          r.id}
+                      </b>
+                      {(r.priceCents !== undefined ||
+                        r.feeCents !== undefined) && (
+                        <b>
+                          ${((r.priceCents ?? r.feeCents) / 100).toFixed(2)}
+                        </b>
+                      )}
+                      {r.departureTime && r.timeZone && (
+                        <RideMeta ride={r} english={en} />
+                      )}
+                      <span>
+                        {r.description || r.lastMessage?.text || r.action}
+                      </span>
+                      <small>
+                        {r.publisherName ||
+                          r.email ||
+                          (r.createdAt &&
+                            new Date(r.createdAt).toLocaleDateString())}
+                      </small>
+                    </button>
+                  ))}
+                </section>
+                {!busy && !rows.length && <p>{t("empty")}</p>}
+                {cursor && (
+                  <button onClick={() => run(() => load(true))}>
+                    {say("加载更多", "Load more")}
+                  </button>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </main>
+    </>
+  );
+  function Report({ type, id }: { type: string; id: string }) {
+    return (
+      <details>
+        <summary>{say("举报", "Report")}</summary>
+        <DataForm
+          t={t}
+          say={say}
+          run={run}
+          busy={busy}
+          kind={kind}
+          fields={{
+            reason: ["spam", "fraud", "inappropriate", "other"],
+            details: "textarea",
+          }}
+          submit={(v) =>
+            api("/reports", "POST", { ...v, targetType: type, targetId: id })
+          }
+        />
+      </details>
+    );
+  }
 }
