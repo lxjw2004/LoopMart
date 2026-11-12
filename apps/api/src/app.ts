@@ -354,7 +354,7 @@ function createHandler({ pool, auth, origin }: {
             const err = e as any;
             const status = typeof err.status === 'number' ? err.status : ['22P02', '22007', '22008', '23503', '23505', '23514'].includes(err.code) ? 400 : 500;
             res.writeHead(status, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: { code: String(status), message: status === 500 ? 'Internal server error' : err.message } }));
+            res.end(JSON.stringify({ error: { requestId:res.getHeader('x-request-id'),code: String(status), message: status === 500 ? 'Internal server error' : typeof err.code==='string'&&/^[0-9A-Z]{5}$/.test(err.code)?'Invalid request data':err.message } }));
         }
     };
 }
@@ -365,7 +365,14 @@ export function createApp(options: {
     origin?: string | string[];
 }) {
     return async (req: IncomingMessage, res: ServerResponse) => {
-        if (!req.url?.startsWith('/api/v1/admin/') || ['GET', 'HEAD'].includes(req.method ?? 'GET'))
+        req.url=req.url??'/';
+        const requestId=randomUUID();res.setHeader('x-request-id',requestId);
+        const rawPath=(req.url??'/').split('?')[0];
+        const canonicalPath=new URL(req.url??'/','http://localhost').pathname;
+        if(rawPath!==canonicalPath||canonicalPath.includes('//')||!/^\/api\/v1(?:\/|$)/.test(canonicalPath)){
+            res.writeHead(400,{'content-type':'application/json'});res.end(JSON.stringify({error:{code:'400',message:'Invalid API path',requestId}}));return;
+        }
+        if (!canonicalPath.startsWith('/api/v1/admin/') || ['GET', 'HEAD'].includes(req.method ?? 'GET'))
             return createHandler(options)(req, res);
         let client;
         try {
@@ -373,7 +380,7 @@ export function createApp(options: {
         }
         catch {
             res.writeHead(503, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: { code: '503', message: 'Database unavailable' } }));
+            res.end(JSON.stringify({ error: {requestId:res.getHeader('x-request-id'), code: '503', message: 'Database unavailable' } }));
             return;
         }
         const originalEnd = res.end.bind(res);
@@ -412,7 +419,7 @@ export function createApp(options: {
         catch {
             await client.query('ROLLBACK');
             responseStatus = 500;
-            output = JSON.stringify({ error: { code: '500', message: 'Administrative transaction failed' } });
+            output = JSON.stringify({ error: {requestId:res.getHeader('x-request-id'), code: '500', message: 'Administrative transaction failed' } });
         }
         finally {
             client.release();

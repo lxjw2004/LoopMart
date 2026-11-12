@@ -100,6 +100,14 @@ test('real PostgreSQL and Better Auth business authorization, chat and admin tra
         const realtime = await reader.read();
         assert.match(new TextDecoder().decode(realtime.value), /event: message/);
         controller.abort();
+        const auditBefore=(await pool.query('SELECT count(*)::int n FROM audit WHERE actor_id=$1',[a.id])).rows[0].n;
+        assert.equal((await request('//admin/users','POST',{email:'bypass@purdue.edu',name:'Bypass',password:'Managed-password-123',reason:'Bypass'},a.cookie)).status,400);
+        assert.equal((await request('/admin/items/'+id,'PUT',{title:'Wrong method',reason:'Wrong method'},a.cookie)).status,405);
+        assert.equal((await request('/admin/settings','PATCH',{contactEnabled:false},a.cookie)).status,400);
+        assert.equal((await request('/admin/settings','PATCH',{contactEnabled:false,reason:'Unauthorized'},b.cookie)).status,403);
+        assert.equal((await pool.query('SELECT count(*)::int n FROM audit WHERE actor_id=$1',[a.id])).rows[0].n,auditBefore);
+        assert.equal((await pool.query('SELECT id FROM "user" WHERE email=$1',['bypass@purdue.edu'])).rowCount,0);
+        const invalidId=await request('/items/private-invalid-input');assert.equal(invalidId.status,400);assert.equal(invalidId.error.message,'Invalid request data');assert.doesNotMatch(invalidId.error.message,/private-invalid-input|uuid/);
         const managedEmail = `managed-${crypto.randomUUID()}@purdue.edu`;
         const managed = await request('/admin/users', 'POST', { email: managedEmail, name: 'Managed', password: 'Managed-password-123', reason: 'Provision' }, a.cookie);
         assert.equal(managed.status, 201, JSON.stringify(managed));
