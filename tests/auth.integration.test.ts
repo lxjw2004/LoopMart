@@ -6,13 +6,15 @@ import { createAuth } from '../apps/auth/src/auth.js';
 import { loadConfig } from '../apps/auth/src/config.js';
 test('PostgreSQL registration verifies email and blocks unverified login', {skip: !process.env.TEST_DATABASE_URL}, async () => {
  const pool = new Pool({connectionString:process.env.TEST_DATABASE_URL});
+ const created: string[] = [];
  const inbox: {to:string;text:string}[] = [];
  const config = loadConfig({DATABASE_URL:process.env.TEST_DATABASE_URL,BETTER_AUTH_SECRET:'integration-test-secret-at-least-32-characters',BETTER_AUTH_URL:'http://localhost:3001'});
  const auth=createAuth(config,pool,async message=>{inbox.push(message)});
  try {
   await (await getMigrations(auth.options)).runMigrations();
   await pool.query('CREATE TABLE IF NOT EXISTS settings(id boolean PRIMARY KEY DEFAULT true CHECK(id),data jsonb NOT NULL)');
-  const email=`integration-${Date.now()}@purdue.edu`;
+  let email=`integration-${Date.now()}@purdue.edu`;
+  created.push(email);
   const request=async(path:string,body?:unknown)=>auth.handler(new Request(`http://localhost:3001/api/auth/${path}`,{method:body?'POST':'GET',headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined}));
   const signup=await request('sign-up/email',{name:'Integration',email,password:'Strong-password-123!'});
   assert.equal(signup.status,200);assert.equal(inbox.length,1);
@@ -23,23 +25,39 @@ test('PostgreSQL registration verifies email and blocks unverified login', {skip
   const cookie=signed.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
   assert.ok(cookie);
   const bad=await request('sign-up/email',{name:'Blocked',email:`blocked-${Date.now()}@example.com`,password:'Strong-password-123!'});
-  assert.equal(bad.status,403);
+  assert.equal(bad.status,200); // Better Auth intentionally hides rejected registration.
+  assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email LIKE $1',[`blocked-%@example.com`])).rowCount,0);
   await pool.query('UPDATE "user" SET banned=true WHERE email=$1',[email]);
   assert.equal((await request('sign-in/email',{email,password:'Strong-password-123!'})).status,403);
   await pool.query('UPDATE "user" SET banned=false WHERE email=$1',[email]);
-  const change=await auth.handler(new Request('http://localhost:3001/api/auth/change-email',{method:'POST',headers:{'content-type':'application/json',cookie},body:JSON.stringify({newEmail:`changed-${Date.now()}@example.com`})}));
+  const change=await auth.handler(new Request('http://localhost:3001/api/auth/change-email',{method:'POST',headers:{'content-type':'application/json',origin:'http://localhost:3001',cookie},body:JSON.stringify({newEmail:`changed-${Date.now()}@example.com`})}));
   assert.equal(change.status,403);
-  await request('request-password-reset',{email,redirectTo:'http://localhost:3001/reset'});
+  const newEmail=`integration-changed-${Date.now()}@purdue.edu`;
+  created.push(newEmail);
+  const changed=await auth.handler(new Request('http://localhost:3001/api/auth/change-email',{method:'POST',headers:{'content-type':'application/json',origin:'http://localhost:3001',cookie},body:JSON.stringify({newEmail})}));
+  assert.equal(changed.status,200);
+  assert.equal((await pool.query('SELECT 1 FROM "user" WHERE email=$1',[newEmail])).rowCount,0);
+  assert.equal(inbox.at(-1)!.to,newEmail);
+  assert.equal((await auth.handler(new Request(inbox.at(-1)!.text))).status,302);
+  email=newEmail;
+  assert.equal((await pool.query('SELECT "emailVerified" FROM "user" WHERE email=$1',[email])).rows[0].emailVerified,true);
+  await request('request-password-reset' ,{email,redirectTo:'http://localhost:3001/reset'});
   const resetURL=new URL(inbox.at(-1)!.text);
   const token=resetURL.pathname.split('/').at(-1)!;
   assert.equal((await request('reset-password',{token,newPassword:'New-strong-password-456!'})).status,200);
   assert.equal((await request('sign-in/email',{email,password:'Strong-password-123!'})).status,401);
-  assert.equal((await request('sign-in/email',{email,password:'New-strong-password-456!'})).status,200);
+  const oldSession=await auth.handler(new Request('http://localhost:3001/api/auth/get-session',{headers:{cookie}}));
+  assert.equal(await oldSession.json(),null);
+  const fresh=await request('sign-in/email',{email,password:'New-strong-password-456!'});
+  assert.equal(fresh.status,200);
+  const freshCookie=fresh.headers.getSetCookie().map(value=>value.split(';')[0]).join('; ');
+  assert.equal((await auth.handler(new Request('http://localhost:3001/api/auth/sign-out',{method:'POST',headers:{origin:'http://localhost:3001',cookie:freshCookie}}))).status,200);
+  assert.equal(await (await auth.handler(new Request('http://localhost:3001/api/auth/get-session',{headers:{origin:'http://localhost:3001',cookie:freshCookie}}))).json(),null);
   const noMail=createAuth(config,pool);
   for(const candidate of [email,'missing@purdue.edu']) {
    const response=await noMail.handler(new Request('http://localhost:3001/api/auth/request-password-reset',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:candidate})}));
    assert.equal(response.status,503);
   }
   await pool.query('DELETE FROM "user" WHERE email=$1',[email]);
- } finally {await pool.end()}
+ } finally {await pool.query('DELETE FROM "user" WHERE email=ANY($1::text[])',[created]);await pool.end()}
 });
