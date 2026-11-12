@@ -1,6 +1,6 @@
 import { additionalFilters } from './filters.js';
 import { administrativeSnapshot } from './audit.js';
-import { allowContact } from './rate-limit.js';
+import { allowContact, allowWrite } from './rate-limit.js';
 import { events } from './events.js';
 import { createAccount, replacePassword } from './admin-accounts.js';
 import { randomUUID } from 'node:crypto';
@@ -123,6 +123,17 @@ function createHandler({ pool, auth, origin }: {
                 }
                 return send(admin ? r : { communityAdminUserId: r.communityAdminUserId ?? null, privacyPolicyZh: r.privacyPolicyZh, privacyPolicyEn: r.privacyPolicyEn, contactEnabled: r.contactEnabled });
             }
+            if (write && !admin && user) {
+                let action: 'message' | 'publish' | 'report' | 'edit' | undefined;
+                if (p[0] === 'conversations' && p[2] === 'messages' && method === 'POST')
+                    action = 'message';
+                if (['items', 'rides'].includes(p[0]))
+                    action = method === 'POST' ? 'publish' : 'edit';
+                if (p[0] === 'reports' && method === 'POST')
+                    action = 'report';
+                if (action && !allowWrite(user.id, action))
+                    fail(429, 'Too many requests');
+            }
             let resource = p[0];
             let mine = false;
             if (resource === 'me' && ['items', 'rides'].includes(id)) {
@@ -156,7 +167,7 @@ function createHandler({ pool, auth, origin }: {
                         fail(404, 'Not found');
                     if (!admin && old.publisher_id !== user.id)
                         fail(403, 'Owner required');
-                    if (!admin && ['deactivated_violation', 'deleted'].includes(old.status))
+                    if (!admin && !['active', 'deactivated'].includes(old.status))
                         fail(403, 'Moderated resource');
                 }
                 const status = method === 'DELETE' ? 'deleted' : b.status ?? old?.status ?? 'active';
@@ -173,7 +184,9 @@ function createHandler({ pool, auth, origin }: {
                     if (!(await pool.query('SELECT 1 FROM \"user\" WHERE id=$1', [b.publisherId])).rowCount)
                         fail(400, 'Publisher not found');
                 }
-                const result = await pool.query('INSERT INTO entities(id,kind,publisher_id,data,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET publisher_id=excluded.publisher_id,data=excluded.data,status=excluded.status,updated_at=now() RETURNING *', [id ?? randomUUID(), kind, admin && b.publisherId ? b.publisherId : old?.publisher_id ?? user.id, data, status]);
+                const result = await pool.query('INSERT INTO entities(id,kind,publisher_id,data,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET publisher_id=excluded.publisher_id,data=excluded.data,status=excluded.status,updated_at=now() WHERE $6::boolean OR (entities.status IN (\'active\',\'deactivated\') AND entities.publisher_id=$3) RETURNING *', [id ?? randomUUID(), kind, admin && b.publisherId ? b.publisherId : old?.publisher_id ?? user.id, data, status, admin]);
+                if (!result.rowCount)
+                    fail(403, 'Resource changed or moderated');
                 return send(entity(result.rows[0]));
             }
             if (resource === 'favorites') {
@@ -195,25 +208,32 @@ function createHandler({ pool, auth, origin }: {
                 await member();
                 if (resource === 'community-messages' && !admin)
                     fail(403, 'Administrator required');
+                let chatUserId = user.id;
+                if (resource === 'community-messages') {
+                    const configured = (await pool.query('SELECT data FROM settings WHERE id=true')).rows[0].data.communityAdminUserId;
+                    if (!configured || !(await pool.query("SELECT 1 FROM \"user\" u JOIN memberships m ON m.user_id=u.id WHERE u.id=$1 AND u.\"emailVerified\"=true AND u.banned=false AND m.role='admin'", [configured])).rowCount)
+                        fail(409, 'Active community administrator required');
+                    chatUserId = configured;
+                }
                 if (id && !['messages', 'read'].includes(p[2] ?? '') && !(admin && method === 'GET' && !p[2]))
                     fail(404, 'Not found');
                 if (method === 'POST' && !id) {
                     const other = str(b.otherUserId ?? b.userId, 200);
-                    if (other === user.id)
+                    if (other === chatUserId)
                         fail(400, 'Cannot message yourself');
                     if (!(await pool.query('SELECT 1 FROM \"user\" WHERE id=$1 AND (\"emailVerified\"=true AND banned=false OR $2)', [other, admin])).rowCount)
                         fail(404, 'Recipient not found');
-                    const pair = [user.id, other].sort();
+                    const pair = [chatUserId, other].sort();
                     const c = (await pool.query('INSERT INTO conversations(id,user_a,user_b) VALUES($1,$2,$3) ON CONFLICT(user_a,user_b) DO UPDATE SET user_a=excluded.user_a RETURNING *', [randomUUID(), ...pair])).rows[0];
                     if (resource === 'community-messages') {
                         const text = str(b.text, 10000);
-                        await pool.query('INSERT INTO messages(id,conversation_id,sender_id,client_id,text) VALUES($1,$2,$3,$4,$5)', [randomUUID(), c.id, user.id, randomUUID(), text]);
+                        await pool.query('INSERT INTO messages(id,conversation_id,sender_id,client_id,text) VALUES($1,$2,$3,$4,$5)', [randomUUID(), c.id, chatUserId, randomUUID(), text]);
                     }
                     publish({ users: pair, type: 'conversation', data: { id: c.id } });
                     return send({ id: c.id });
                 }
                 if (!id) {
-                    const args: unknown[] = [user.id, admin, url.searchParams.get('q') ?? '', url.searchParams.get('cursor')];
+                    const args: unknown[] = [chatUserId, admin && resource !== 'community-messages', url.searchParams.get('q') ?? '', url.searchParams.get('cursor')];
                     const extra = additionalFilters(url.searchParams, resource, args);
                     const rows = (await pool.query(`SELECT * FROM (${'SELECT c.id,json_build_object(\'id\',u.id,\'name\',u.name) "otherUser",(SELECT row_to_json(m) FROM (SELECT id,text,created_at "createdAt",sender_id "senderId" FROM messages WHERE conversation_id=c.id ORDER BY seq DESC LIMIT 1)m) "lastMessage",(SELECT count(*)::int FROM messages m WHERE m.conversation_id=c.id AND m.sender_id<>$1 AND m.seq>coalesce(r.seq,0)) "unreadCount",(SELECT id FROM messages WHERE seq=r.seq) "readMessageId" FROM conversations c JOIN "user" u ON u.id=CASE WHEN c.user_a=$1 THEN c.user_b ELSE c.user_a END LEFT JOIN reads r ON r.conversation_id=c.id AND r.user_id=$1 WHERE $2 OR c.user_a=$1 OR c.user_b=$1'}) t WHERE (row_to_json(t)::text ILIKE '%'||$3||'%') AND ($4::uuid IS NULL OR id>$4) ${extra} ORDER BY id LIMIT 101`, args)).rows;
                     res.writeHead(200, { 'content-type': 'application/json' });
@@ -222,9 +242,9 @@ function createHandler({ pool, auth, origin }: {
                 const c = (await pool.query('SELECT * FROM conversations WHERE id=$1', [id])).rows[0];
                 if (!c)
                     fail(404, 'Conversation not found');
-                if (!admin && ![c.user_a, c.user_b].includes(user.id))
+                if ((!admin || resource === 'community-messages') && ![c.user_a, c.user_b].includes(chatUserId))
                     fail(403, 'Participant required');
-                if (write && ![c.user_a, c.user_b].includes(user.id))
+                if (write && ![c.user_a, c.user_b].includes(chatUserId))
                     fail(403, 'Participant required');
                 if (p[2] === 'read') {
                     if (method !== 'PUT')
@@ -232,8 +252,8 @@ function createHandler({ pool, auth, origin }: {
                     const m = (await pool.query('SELECT seq FROM messages WHERE id=$1 AND conversation_id=$2', [b.messageId, id])).rows[0];
                     if (!m)
                         fail(400, 'Invalid message');
-                    await pool.query('INSERT INTO reads VALUES($1,$2,$3) ON CONFLICT(conversation_id,user_id) DO UPDATE SET seq=greatest(reads.seq,excluded.seq)', [id, user.id, m.seq]);
-                    publish({ users: [c.user_a, c.user_b], type: 'read', data: { conversationId: id, userId: user.id, messageId: b.messageId } });
+                    await pool.query('INSERT INTO reads VALUES($1,$2,$3) ON CONFLICT(conversation_id,user_id) DO UPDATE SET seq=greatest(reads.seq,excluded.seq)', [id, chatUserId, m.seq]);
+                    publish({ users: [c.user_a, c.user_b], type: 'read', data: { conversationId: id, userId: chatUserId, messageId: b.messageId } });
                     return send({ ok: true });
                 }
                 const map = (m: any) => ({ id: m.id, conversationId: m.conversation_id, senderId: m.sender_id, text: m.text, reference: m.reference, createdAt: m.created_at });
@@ -249,12 +269,12 @@ function createHandler({ pool, auth, origin }: {
                 if (b.reference) {
                     if (!['item', 'ride'].includes(b.reference.type))
                         fail(400, 'Invalid reference');
-                    const e = (await pool.query('SELECT * FROM entities WHERE id=$1 AND kind=$2 AND (status=\'active\' OR publisher_id=$3 OR $4)', [b.reference.id, b.reference.type, user.id, admin])).rows[0];
+                    const e = (await pool.query('SELECT * FROM entities WHERE id=$1 AND kind=$2 AND (status=\'active\' OR publisher_id=$3 OR $4)', [b.reference.id, b.reference.type, chatUserId, admin])).rows[0];
                     if (!e)
                         fail(404, 'Reference not found');
                     reference = { type: e.kind, id: e.id, ...e.data };
                 }
-                const m = (await pool.query('INSERT INTO messages(id,conversation_id,sender_id,client_id,text,reference) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(conversation_id,sender_id,client_id) DO UPDATE SET client_id=excluded.client_id RETURNING *', [randomUUID(), id, user.id, str(b.clientId, 200), str(b.text, 10000), reference])).rows[0];
+                const m = (await pool.query('INSERT INTO messages(id,conversation_id,sender_id,client_id,text,reference) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(conversation_id,sender_id,client_id) DO UPDATE SET client_id=excluded.client_id RETURNING *', [randomUUID(), id, chatUserId, str(b.clientId, 200), str(b.text, 10000), reference])).rows[0];
                 if (m.text !== b.text.trim() || (m.reference?.id ?? null) !== (b.reference?.id ?? null) || (m.reference?.type ?? null) !== (b.reference?.type ?? null))
                     fail(409, 'Client message id already used with different content');
                 publish({ users: [c.user_a, c.user_b], type: 'message', data: map(m) });
@@ -371,7 +391,8 @@ function createHandler({ pool, auth, origin }: {
             }
             if (resource === 'events') {
                 await member();
-                res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive' });
+                res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache, no-transform', 'connection': 'keep-alive', 'x-accel-buffering': 'no' });
+                res.flushHeaders();
                 res.write(': connected\n\n');
                 const listener = (event: any) => {
                     if (event.users.includes(user.id))
@@ -379,7 +400,7 @@ function createHandler({ pool, auth, origin }: {
                 };
                 events.on('change', listener);
                 const timer = setInterval(() => { void member().then(() => res.write(': heartbeat\n\n')).catch(() => res.end()); }, 20000);
-                req.on('close', () => { clearInterval(timer); events.off('change', listener); });
+                res.on('close', () => { clearInterval(timer); events.off('change', listener); });
                 return;
             }
             fail(404, 'Not found');

@@ -96,6 +96,7 @@ test('real PostgreSQL and Better Auth business authorization, chat and admin tra
         const stream = await fetch(base + '/events', { headers: { cookie: b.cookie }, signal: controller.signal });
         const reader = stream.body!.getReader();
         await reader.read();
+        await new Promise(resolve => setTimeout(resolve, 1500));
         await request(`/conversations/${conversation}/messages`, 'POST', { clientId: crypto.randomUUID(), text: 'Realtime' }, a.cookie);
         const realtime = await reader.read();
         assert.match(new TextDecoder().decode(realtime.value), /event: message/);
@@ -124,6 +125,24 @@ test('real PostgreSQL and Better Auth business authorization, chat and admin tra
         assert.equal(delegated.status, 200);
         assert.equal(delegated.data.publisherId, b.id);
         assert.ok((await request('/items?status=')).data.length > 0);
+        const reported = await request('/items', 'POST', item, b.cookie);
+        await pool.query("UPDATE entities SET status='reported' WHERE id=$1", [reported.data.id]);
+        assert.equal((await request('/items/' + reported.data.id, 'PATCH', { status: 'active' }, b.cookie)).status, 403);
+        const race = await request('/items', 'POST', item, b.cookie);
+        const lock = await pool.connect();
+        try {
+            await lock.query('BEGIN');
+            await lock.query("UPDATE entities SET status='deactivated_violation' WHERE id=$1", [race.data.id]);
+            const attempt = request('/items/' + race.data.id, 'PATCH', { status: 'active' }, b.cookie);
+            await new Promise(resolve => setTimeout(resolve, 100));
+            await lock.query('COMMIT');
+            assert.equal((await attempt).status, 403);
+            assert.equal((await pool.query('SELECT status FROM entities WHERE id=$1', [race.data.id])).rows[0].status, 'deactivated_violation');
+        }
+        finally {
+            await lock.query('ROLLBACK');
+            lock.release();
+        }
         const auditBefore = (await pool.query('SELECT count(*)::int n FROM audit WHERE actor_id=$1', [a.id])).rows[0].n;
         assert.equal((await request('//admin/users', 'POST', { email: 'bypass@purdue.edu', name: 'Bypass', password: 'Managed-password-123', reason: 'Bypass' }, a.cookie)).status, 400);
         assert.equal((await request('/admin/items/' + id, 'PUT', { title: 'Wrong method', reason: 'Wrong method' }, a.cookie)).status, 405);
@@ -140,6 +159,23 @@ test('real PostgreSQL and Better Auth business authorization, chat and admin tra
         assert.equal(managed.status, 201, JSON.stringify(managed));
         assert.equal(managed.data.emailVerified, false);
         assert.equal((await request('/admin/users/' + managed.data.id + '/password', 'POST', { password: 'Replacement-password-456', reason: 'Rotate' }, a.cookie)).status, 200);
+        await pool.query("UPDATE memberships SET role='admin' WHERE user_id=$1", [b.id]);
+        await pool.query("UPDATE settings SET data=jsonb_set(data,'{communityAdminUserId}',to_jsonb($1::text)) WHERE id=true", [b.id]);
+        const communityText = 'Official ' + crypto.randomUUID();
+        const community = await request('/admin/community-messages', 'POST', { userId: c.id, text: communityText, reason: 'Official support' }, a.cookie);
+        assert.equal(community.status, 200, JSON.stringify(community));
+        const official = (await pool.query('SELECT * FROM messages WHERE conversation_id=$1 AND text=$2', [community.data.id, communityText])).rows[0];
+        assert.equal(official.sender_id, b.id);
+        const officialAudit = (await pool.query('SELECT * FROM audit WHERE target_id=$1', [community.data.id])).rows[0];
+        assert.equal(officialAudit.actor_id, a.id);
+        const unrelated = await request('/conversations', 'POST', { otherUserId: c.id }, a.cookie);
+        const officialList = await request('/admin/community-messages', 'GET', undefined, a.cookie);
+        assert.equal(officialList.data.some((r: any) => r.id === community.data.id), true);
+        assert.equal(officialList.data.some((r: any) => r.id === unrelated.data.id), false);
+        assert.equal((await request('/admin/community-messages/' + unrelated.data.id, 'GET', undefined, a.cookie)).status, 403);
+        for (let i = 0; i < 60; i++)
+            assert.equal((await request('/conversations/' + community.data.id + '/messages', 'POST', { clientId: 'limit-' + i, text: 'Bounded ' + i }, c.cookie)).status, 200);
+        assert.equal((await request('/conversations/' + community.data.id + '/messages', 'POST', { clientId: 'over-limit', text: 'Blocked' }, c.cookie)).status, 429);
         await pool.query("ALTER TABLE audit ADD CONSTRAINT api_test_audit_rollback CHECK(reason<>'rollback-test')");
         const failedEmail = `failed-${crypto.randomUUID()}@purdue.edu`;
         try {
