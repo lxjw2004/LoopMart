@@ -1,6 +1,15 @@
 "use client";
 import type { ReactNode } from "react";
+import { CodeBlock } from "@astryxdesign/core/CodeBlock";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Grid } from "@astryxdesign/core/Grid";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { Section } from "@astryxdesign/core/Section";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Heading, Text } from "@astryxdesign/core/Text";
 import { resourceValue, normalizeResourceRow } from "./ResourceList";
+import { useLayout } from "../shared/design";
 type Row = Record<string, any>;
 const fields: Record<string, string[]> = { users: ["id", "name", "email", "emailVerified", "role", "banned", "createdAt", "updatedAt"], items: ["id", "title", "description", "category", "priceCents", "condition", "deliveryMethod", "status", "publisherId", "publisherName", "createdAt", "updatedAt"], rides: ["id", "origin", "destination", "departureTime", "timeZone", "feeCents", "feeDescription", "totalSeats", "availableSeats", "notes", "status", "publisherId", "createdAt"], reports: ["id", "targetType", "targetId", "reporterId", "reason", "details", "status", "note", "reviewedBy", "reviewedAt", "createdAt"], contact: ["id", "subject", "email", "message", "status", "note", "createdAt", "updatedAt"], conversations: ["id", "otherUser", "userA", "userB", "createdAt", "updatedAt"], "community-messages": ["id", "otherUser", "userA", "userB", "createdAt", "updatedAt"], audit: ["id", "actorId", "action", "targetId", "reason", "createdAt"] };
 function redact(value: unknown): unknown {
@@ -11,5 +20,47 @@ function redact(value: unknown): unknown {
 export interface ResourceDetailProps { resource: string; detail: Row; children?: ReactNode; english?: boolean; t?: (key: string) => string }
 export default function ResourceDetail({ resource, detail: record, children, english = false, t = key => key }: ResourceDetailProps) {
   const detail = normalizeResourceRow(record);
-  return <article className="admin-resource-detail"><div className="admin-detail-heading"><span className="admin-eyebrow">{t(resource)}</span><h2>{detail.title || detail.name || detail.subject || detail.action || detail.id}</h2></div><dl className="admin-detail-fields">{(fields[resource] || ["id", "status", "createdAt"]).filter(key => detail[key] !== undefined && detail[key] !== null).map(key => <div key={key}><dt>{t(key)}</dt><dd>{["status", "role", "category", "condition", "deliveryMethod", "targetType"].includes(key) ? t(String(detail[key])) : resourceValue(detail, key, english)}</dd></div>)}</dl>{Array.isArray(detail.messages) && <section className="admin-detail-messages"><h3>{english ? "Messages" : "消息"}</h3>{detail.messages.length === 0 && <p>{english ? "No messages" : "暂无消息"}</p>}{detail.messages.map((message: Row, index: number) => <article key={message.id || index}><div><strong>{message.senderName || message.senderId}</strong><time>{resourceValue(message, "createdAt", english)}</time></div><p>{message.text || message.content}</p></article>)}</section>}{resource === "audit" && <section className="admin-audit-comparison">{["before", "after"].map(key => { const value = detail[key + "Data"] ?? detail[key + "_data"] ?? detail[key]; return <div key={key}><h3>{key === "before" ? (english ? "Before" : "变更前") : (english ? "After" : "变更后")}</h3><pre>{JSON.stringify(redact(value ?? null), null, 2)}</pre></div>; })}</section>}{children && <div className="admin-detail-actions">{children}</div>}</article>;
+  const { mobile } = useLayout();
+  return (
+    <Section variant="admin-detail"><VStack as="article" gap={6} className="admin-resource-detail" style={{ minWidth: 0 }} data-testid="admin-resource-detail">
+      <VStack gap={5}><VStack gap={2}>
+        <Text type="admin-eyebrow">{t(resource)}</Text>
+        <Heading level={2}>{detail.title || detail.name || detail.subject || detail.action || detail.id}</Heading>
+      </VStack><Divider /></VStack>
+      <MetadataList columns={mobile ? 1 : 2} label={{ position: "top" }}>
+        {(fields[resource] || ["id", "status", "createdAt"]).filter(key => detail[key] !== undefined && detail[key] !== null).map(key => (
+          <MetadataListItem key={key} label={t(key)}>
+            <Text style={{ whiteSpace: "pre-wrap" }}>{["status", "role", "category", "condition", "deliveryMethod", "targetType"].includes(key) ? t(String(detail[key])) : resourceValue(detail, key, english)}</Text>
+          </MetadataListItem>
+        ))}
+      </MetadataList>
+      {Array.isArray(detail.messages) && (
+        <Section padding={0}>
+          <VStack gap={3}>
+            <Heading level={3}>{english ? "Messages" : "消息"}</Heading>
+            {detail.messages.length === 0 ? <Text color="secondary">{english ? "No messages" : "暂无消息"}</Text> : (
+              <List edge="flush" hasDividers>
+                {detail.messages.map((message: Row, index: number) => (
+                  <ListItem
+                    key={message.id || index}
+                    label={<HStack gap={3} hAlign="between" wrap="wrap"><Text type="label">{message.senderName || message.senderId}</Text><Text type="supporting">{resourceValue(message, "createdAt", english)}</Text></HStack>}
+                    description={<Text as="p" style={{ whiteSpace: "pre-wrap" }}>{message.text || message.content}</Text>}
+                  />
+                ))}
+              </List>
+            )}
+          </VStack>
+        </Section>
+      )}
+      {resource === "audit" && (
+        <Grid columns={mobile ? 1 : 2} gap={5} data-testid="admin-audit-comparison">
+          {["before", "after"].map(key => {
+            const value = detail[key + "Data"] ?? detail[key + "_data"] ?? detail[key];
+            return <VStack key={key} gap={3} style={{ minWidth: 0 }}><Heading level={3}>{key === "before" ? (english ? "Before" : "变更前") : (english ? "After" : "变更后")}</Heading><CodeBlock code={JSON.stringify(redact(value ?? null), null, 2)} language="json" hasLanguageLabel={false} hasCopyButton={false} isWrapped width="100%" maxHeight="var(--lm-admin-audit-height)" /></VStack>;
+          })}
+        </Grid>
+      )}
+      {children && <Section padding={0} dividers={["top"]}><VStack gap={4} paddingBlockStart={5}>{children}</VStack></Section>}
+    </VStack></Section>
+  );
 }

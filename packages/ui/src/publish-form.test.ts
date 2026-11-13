@@ -12,3 +12,10 @@ test('draft recovery ignores malformed and unrelated fields', () => {
   assert.deepEqual(restoreDraft('{"title":"Book","publisherId":"other"}', {title:'text'}, {}), {title:'Book'});
   assert.deepEqual(restoreDraft('["bad"]', {title:'text'}, {title:'Default'}), {title:'Default'});
 });
+test('seat fields reject invalid integer input without native number controls', () => {
+  for (const value of ['', -1, 1.5, '2e1', 'two', Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => formPayload({ totalSeats: value }));
+    assert.throws(() => formPayload({ availableSeats: value }));
+  }
+  assert.deepEqual(formPayload({ totalSeats: '3', availableSeats: '0' }), { totalSeats: 3, availableSeats: 0 });
+});

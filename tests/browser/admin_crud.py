@@ -1,17 +1,15 @@
 """Admin CRUD regression checks against the seeded browser test environment."""
 import os
+import re
 from pathlib import Path
 from e2e import sync_playwright, expect, U, TAG, EXE, fill, clean
+from ui_controls import admin_navigate, expect_selected, select_value, form_for, labelled_control
 
 ADMIN_URL = os.environ.get("LOOPMART_ADMIN_URL", "http://localhost:3004").rstrip("/")
 
 
 def navigate(page, name):
-    menu = page.get_by_role("button", name="菜单", exact=True)
-    if menu.is_visible() and menu.get_attribute("aria-expanded") != "true":
-        menu.click()
-    page.get_by_role("navigation").get_by_role("button", name=name, exact=True).click()
-    expect(page.get_by_role("heading", level=1)).to_be_visible()
+    admin_navigate(page, name)
 
 
 def search_open(page, query, *, open_name=None, has_form=True):
@@ -56,12 +54,12 @@ def api_data(page, path, method="GET", data=None):
 
 
 def settings_fields(page, settings):
-    page.get_by_label("允许邮箱后缀（逗号分隔）", exact=True).fill(",".join(settings.get("allowedEmailDomains", [])))
-    page.get_by_label("允许所有邮箱", exact=True).select_option(str(settings.get("allowAllEmailDomains", False)).lower())
-    page.get_by_label("社区管理员 ID", exact=True).fill(settings.get("communityAdminUserId") or "")
-    page.get_by_label("中文隐私政策", exact=True).fill(settings.get("privacyPolicyZh") or "")
-    page.get_by_label("英文隐私政策", exact=True).fill(settings.get("privacyPolicyEn") or "")
-    page.get_by_label("开放联系表单", exact=True).select_option(str(settings.get("contactEnabled", False)).lower())
+    labelled_control(page,"允许邮箱后缀（逗号分隔）").fill(",".join(settings.get("allowedEmailDomains", [])))
+    select_value(page, "允许所有邮箱", str(settings.get("allowAllEmailDomains", False)).lower())
+    labelled_control(page,"社区管理员 ID").fill(settings.get("communityAdminUserId") or "")
+    labelled_control(page,"中文隐私政策").fill(settings.get("privacyPolicyZh") or "")
+    labelled_control(page,"英文隐私政策").fill(settings.get("privacyPolicyEn") or "")
+    select_value(page, "开放联系表单", str(settings.get("contactEnabled", False)).lower())
 
 
 def main():
@@ -73,28 +71,28 @@ def main():
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("dialog", lambda dialog: (native_dialogs.append(dialog.type), dialog.dismiss()))
         page.goto(ADMIN_URL + "/login", wait_until="networkidle")
-        page.get_by_label("邮箱", exact=True).fill(U[0]["email"])
-        page.get_by_label("密码", exact=True).fill(U[0]["password"])
-        page.get_by_role("button", name="保存", exact=True).click()
+        labelled_control(page,"邮箱").fill(U[0]["email"])
+        labelled_control(page,"密码").fill(U[0]["password"])
+        form_for(page,"密码").get_by_role("button", name="登录", exact=True).click()
         expect(page.get_by_role("button", name="退出", exact=True)).to_be_visible(timeout=15000)
 
         navigate(page, "用户")
-        page.get_by_text("创建用户", exact=True).click()
-        create_form = page.locator("details form")
-        create_form.get_by_label("邮箱", exact=True).fill(TAG.lower() + "@purdue.edu")
-        create_form.get_by_label("昵称", exact=True).fill(TAG)
-        create_form.get_by_label("密码", exact=True).fill("Only-test-" + TAG + "!9")
+        page.get_by_role("button", name="创建用户", exact=True).click()
+        create_form = form_for(page,"邮箱")
+        labelled_control(create_form,"邮箱").fill(TAG.lower() + "@purdue.edu")
+        labelled_control(create_form,"昵称").fill(TAG)
+        labelled_control(create_form,"密码").fill("Only-test-" + TAG + "!9")
         save(page, create_form)
         search_open(page, TAG)
-        expect(page.get_by_label("角色", exact=True)).to_be_visible()
+        expect(labelled_control(page,"角色")).to_be_visible()
         recipient_id = page.url.rstrip("/").split("/")[-1]
-        password = page.get_by_label("密码", exact=True)
+        password = labelled_control(page,"密码")
         password.fill("Changed-only-test-" + TAG + "!9")
         save(page, page.locator("form").filter(has=password))
         print("PASS admin create user/set password")
 
-        user_form = page.locator("form").filter(has=page.get_by_label("封禁", exact=True))
-        page.get_by_label("封禁", exact=True).select_option("true")
+        user_form = page.locator("form").filter(has=labelled_control(page,"封禁"))
+        select_value(page, "封禁", "true")
         user_form.get_by_role("button", name="保存", exact=True).click()
         dialog = page.get_by_role("dialog", name="确认操作", exact=True)
         expect(dialog.get_by_role("button", name="确认操作", exact=True)).to_be_disabled()
@@ -110,21 +108,21 @@ def main():
         # Reopen the untouched server record to discard the cancelled form edit.
         navigate(page, "用户")
         search_open(page, TAG)
-        expect(page.get_by_label("封禁", exact=True)).to_have_value("false")
-        user_form = page.locator("form").filter(has=page.get_by_label("封禁", exact=True))
-        page.get_by_label("封禁", exact=True).select_option("true")
+        expect_selected(page, "封禁", "false")
+        user_form = page.locator("form").filter(has=labelled_control(page,"封禁"))
+        select_value(page, "封禁", "true")
         save(page, user_form)
-        expect(page.get_by_label("封禁", exact=True)).to_have_value("true")
-        page.get_by_label("封禁", exact=True).select_option("false")
-        page.get_by_label("角色", exact=True).select_option("admin")
+        expect_selected(page, "封禁", "true")
+        select_value(page, "封禁", "false")
+        select_value(page, "角色", "admin")
         save(page, user_form)
-        expect(page.get_by_label("角色", exact=True)).to_have_value("admin")
-        page.get_by_label("角色", exact=True).select_option("member")
+        expect_selected(page, "角色", "admin")
+        select_value(page, "角色", "member")
         save(page, user_form)
         print("PASS admin cancel/ban/unban/role")
 
         # A failed write leaves the confirmation and reason available for retry.
-        page.get_by_label("封禁", exact=True).select_option("true")
+        select_value(page, "封禁", "true")
         user_form.get_by_role("button", name="保存", exact=True).click()
         dialog = page.get_by_role("dialog", name="确认操作", exact=True)
         dialog.get_by_role("textbox", name="操作原因", exact=True).fill("Retry audit " + TAG)
@@ -140,22 +138,22 @@ def main():
         page.unroute("**/api/v1/admin/users/*", fail_update)
         dialog.get_by_role("button", name="确认操作", exact=True).click()
         expect(dialog).not_to_be_visible()
-        expect(page.get_by_label("封禁", exact=True)).to_have_value("true")
-        page.get_by_label("封禁", exact=True).select_option("false")
+        expect_selected(page, "封禁", "true")
+        select_value(page, "封禁", "false")
         save(page, user_form)
         print("PASS admin failed confirmation retains reason and supports retry")
 
         navigate(page, "商品")
         page.get_by_role("button", name="创建", exact=True).click()
         fill(page, {"标题": TAG + "-admin", "描述": "Admin authored text", "价格（美元）": "9.99"})
-        page.get_by_label("分类", exact=True).select_option("daily")
-        page.get_by_label("成色", exact=True).select_option("new")
-        page.get_by_label("交付方式", exact=True).select_option("meetup")
+        select_value(page, "分类", "daily")
+        select_value(page, "成色", "new")
+        select_value(page, "交付方式", "meetup")
         save(page)
         search_open(page, TAG + "-admin")
         expect(page.get_by_role("heading", name=TAG + "-admin", exact=True).first).to_be_visible()
         page.get_by_role("button", name="编辑", exact=True).click()
-        page.get_by_label("描述", exact=True).fill("Edited admin description")
+        labelled_control(page,"描述").fill("Edited admin description")
         save(page)
         search_open(page, TAG + "-admin")
         expect(page.get_by_text("Edited admin description", exact=True)).to_be_visible()
@@ -171,8 +169,8 @@ def main():
         search_open(page, TAG, open_name=origin + " → Airport")
         expect(page.get_by_text("Meet at library", exact=True)).to_be_visible()
         page.get_by_role("button", name="编辑", exact=True).click()
-        page.get_by_label("剩余座位", exact=True).fill("1")
-        page.get_by_label("备注", exact=True).fill("Updated pickup " + TAG)
+        labelled_control(page,"剩余座位").fill("1")
+        labelled_control(page,"备注").fill("Updated pickup " + TAG)
         save(page)
         search_open(page, TAG, open_name=origin + " → Airport")
         expect(page.get_by_text("Updated pickup " + TAG, exact=True)).to_be_visible()
@@ -188,8 +186,8 @@ def main():
         for index, status in enumerate(("reviewed", "dismissed")):
             navigate(page, "举报")
             search_open(page, TAG + "-report-" + str(index), open_name=report_ids[index])
-            page.get_by_label("状态", exact=True).select_option(status)
-            page.get_by_label("审核说明", exact=True).fill(TAG + " " + status)
+            select_value(page, "状态", status)
+            labelled_control(page,"审核说明").fill(TAG + " " + status)
             save(page)
             expect(page.get_by_role("article").get_by_text(TAG + " " + status, exact=True)).to_be_visible()
             assert api_data(page, "/admin/reports/" + report_ids[index])["status"] == status
@@ -200,7 +198,7 @@ def main():
         changed_settings = {**original_settings, "communityAdminUserId": original_settings.get("communityAdminUserId") or operator["id"], "contactEnabled": True, "privacyPolicyZh": "隐私 " + TAG, "privacyPolicyEn": "Privacy " + TAG}
         try:
             navigate(page, "设置")
-            expect(page.get_by_label("允许所有邮箱", exact=True)).to_be_visible()
+            expect(labelled_control(page,"允许所有邮箱")).to_be_visible()
             for group in ("认证", "社区身份", "联系", "隐私"):
                 expect(page.get_by_role("group", name=group, exact=True)).to_be_visible()
             settings_fields(page, changed_settings)
@@ -213,8 +211,8 @@ def main():
             contact = api_data(page, "/contact", "POST", {"email": TAG.lower() + "@purdue.edu", "subject": TAG + "-contact", "message": "Please review " + TAG})
             navigate(page, "联系表单")
             search_open(page, TAG + "-contact")
-            page.get_by_label("状态", exact=True).select_option("resolved")
-            page.get_by_label("审核说明", exact=True).fill("Resolved " + TAG)
+            select_value(page, "状态", "resolved")
+            labelled_control(page,"审核说明").fill("Resolved " + TAG)
             save(page)
             expect(page.get_by_role("article").get_by_text("Resolved " + TAG, exact=True)).to_be_visible()
             assert api_data(page, "/admin/contact/" + contact["id"])["status"] == "resolved"
@@ -223,11 +221,11 @@ def main():
             navigate(page, "社区消息")
             recipient_search = page.get_by_role("textbox", name="搜索用户", exact=True)
             recipient_search.fill(TAG.lower() + "@purdue.edu")
-            recipient_search.locator("..").get_by_role("button", name="搜索", exact=True).click()
+            recipient_search.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' toolbar ')][1]").get_by_role("button", name="搜索", exact=True).click()
             page.get_by_role("button", name=TAG + " · " + TAG.lower() + "@purdue.edu", exact=True).click()
             official_name = api_data(page, "/admin/users/" + changed_settings["communityAdminUserId"])["name"]
             expect(page.get_by_text("发送身份: " + official_name, exact=True)).to_be_visible()
-            page.get_by_label("消息", exact=True).fill("Official message " + TAG)
+            labelled_control(page,"消息").fill("Official message " + TAG)
             page.get_by_role("button", name="保存", exact=True).click()
             expect(page.get_by_role("dialog")).to_contain_text("发送身份: " + official_name + " · 收件人: " + TAG)
             confirm(page)
@@ -257,13 +255,14 @@ def main():
         search_open(page, audit["id"], has_form=False)
         expect(page.get_by_role("heading", name="变更前", exact=True)).to_be_visible()
         expect(page.get_by_role("heading", name="变更后", exact=True)).to_be_visible()
-        assert "Only-test-" + TAG not in page.locator("main").inner_text()
-        assert "Changed-only-test-" + TAG not in page.locator("main").inner_text()
+        assert "Only-test-" + TAG not in page.get_by_role("main").inner_text()
+        assert "Changed-only-test-" + TAG not in page.get_by_role("main").inner_text()
         print("PASS admin overview/audit structured read")
 
         page.set_viewport_size({"width": 390, "height": 844})
         navigate(page, "用户")
-        expect(page.locator(".admin-record-cards article").first).to_be_visible()
+        expect(page.get_by_test_id("admin-resource-list").get_by_role("table")).to_be_visible()
+        expect(page.get_by_test_id("admin-resource-list").get_by_role("button", name=re.compile(r"^查看 ")).first).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "Admin mobile overflow"
         Path(".superpowers/e2e").mkdir(parents=True, exist_ok=True)
         page.screenshot(path=".superpowers/e2e/admin-mobile.png", full_page=False)

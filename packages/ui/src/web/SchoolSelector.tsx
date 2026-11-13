@@ -1,19 +1,27 @@
 "use client";
-import {useRef,useState} from 'react';
+import {useState} from 'react';
+import {Button} from '@astryxdesign/core/Button';
+import {Dialog,DialogHeader} from '@astryxdesign/core/Dialog';
+import {VStack} from '@astryxdesign/core/VStack';
+import {TextInput} from '@astryxdesign/core/TextInput';
+import {List,ListItem} from '@astryxdesign/core/List';
+import {Icon} from '@astryxdesign/core/Icon';
+import {Text} from '@astryxdesign/core/Text';
 import {matchesSchool,schools} from '../schools';
-
-export default function SchoolSelector({english}:{english:boolean}){
- const dialog=useRef<HTMLDialogElement>(null);
- const [query,setQuery]=useState('');
- const [selected,setSelected]=useState(schools[0]);
+export default function SchoolSelector({english,selection,onSelect}:{english:boolean;selection?:typeof schools[number];onSelect?:(school:typeof schools[number])=>void}){
+ const [open,setOpen]=useState(false),[query,setQuery]=useState('');
+ const [localSelection,setLocalSelection]=useState(schools[0]);
+ const selected=selection||localSelection;
+ const setSelected=onSelect||setLocalSelection;
  const say=(zh:string,en:string)=>english?en:zh;
  const results=schools.filter(school=>matchesSchool(school,query));
  return <>
- <button type="button" className="text-button school-trigger" aria-label={say('选择学校','Select university')+': '+selected.name} aria-haspopup="dialog" onClick={()=>{setQuery('');dialog.current?.showModal()}}><span>{selected.name}</span><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5"/></svg></button>
- <dialog ref={dialog} className="school-dialog" aria-label={say('选择学校','Select university')} onClick={e=>{if(e.target===e.currentTarget){const r=e.currentTarget.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.current?.close()}}}>
- <div className="school-dialog-heading"><h2>{say('选择学校','Select university')}</h2><button type="button" className="text-button school-close" aria-label={say('关闭','Close')} onClick={()=>dialog.current?.close()}>×</button></div>
- <input autoFocus type="search" aria-label={say('搜索学校','Search universities')} placeholder={say('搜索学校','Search universities')} value={query} onChange={e=>setQuery(e.target.value)}/>
- <div className="school-results">{results.map(school=><button key={school.id} type="button" className="school-option" aria-pressed={selected.id===school.id} onClick={()=>{setSelected(school);dialog.current?.close()}}><span>{school.name}</span>{selected.id===school.id&&<span aria-hidden="true">✓</span>}</button>)}{results.length===0&&<p role="status">{say('未找到学校','No universities found')}</p>}</div>
- </dialog>
+  <Button className="school-trigger" variant="ghost" label={say('选择学校','Select university')+': '+selected.name} aria-label={say('选择学校','Select university')+': '+selected.name} aria-haspopup="dialog" onClick={()=>{setQuery('');setOpen(true)}} endContent={<Icon icon="chevronDown"/>}><Text as="span" type="inherit" style={{display:'var(--lm-mobile-display)'}}>{selected.shortName}</Text><Text as="span" type="inherit" style={{display:'var(--lm-nonmobile-display)'}}>{selected.name}</Text></Button>
+  <Dialog isOpen={open} onOpenChange={setOpen} width="calc(var(--spacing-12) * 10)" aria-label={say('选择学校','Select university')}>
+   <VStack gap={4}><DialogHeader title={say('选择学校','Select university')} onOpenChange={setOpen}/><TextInput hasAutoFocus type="search" label={say('搜索学校','Search universities')} isLabelHidden placeholder={say('搜索学校','Search universities')} value={query} onChange={setQuery}/>
+    <List>{results.map(school=><ListItem key={school.id} label={school.name} isSelected={selected.id===school.id} endContent={selected.id===school.id?<Icon icon="check"/>:undefined} onClick={()=>{setSelected(school);setOpen(false)}}/>)}</List>
+    {!results.length&&<Text role="status" type="supporting">{say('未找到学校','No universities found')}</Text>}
+   </VStack>
+  </Dialog>
  </>;
 }

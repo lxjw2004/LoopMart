@@ -10,9 +10,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "tsx --test --test-concurrency=1 tests/foundation.test.ts tests/test-database.test.ts tests/api.validation.test.ts packages/ui/src/*.test.ts apps/api/src/item-filters.test.ts",
+    "test": "tsx --test --test-concurrency=1 tests/foundation.test.ts tests/test-database.test.ts tests/api.validation.test.ts tests/astryx-ui.test.ts packages/ui/src/*.test.ts apps/api/src/item-filters.test.ts",
+    "astryx": "astryx",
     "typecheck": "tsc --noEmit && npm run typecheck --workspace=@loopmart/web && npm run typecheck --workspace=@loopmart/admin",
-    "build": "npm run build:server && npm run build --workspace=@loopmart/web && npm run build --workspace=@loopmart/admin && node scripts/prepare-standalone.mjs",
+    "build": "npm run theme:build && npm run build:server && npm run build --workspace=@loopmart/web && npm run build --workspace=@loopmart/admin && node scripts/prepare-standalone.mjs",
+    "theme:build": "astryx theme build src/themes/loopmart-web/loopmartWebTheme.ts src/themes/loopmart-admin/loopmartAdminTheme.ts",
+    "theme:check": "astryx theme build src/themes/loopmart-web/loopmartWebTheme.ts src/themes/loopmart-admin/loopmartAdminTheme.ts --check",
     "auth": "node --env-file=.env dist/apps/auth/src/server.js",
     "auth:migrate": "node --env-file=.env dist/apps/auth/src/migrate.js",
     "test:integration": "node --env-file=.env.test --import tsx --test --test-concurrency=1 tests/auth.integration.test.ts tests/api.integration.test.ts",
@@ -22,20 +25,23 @@
     "dev": "node scripts/dev.mjs"
   },
   "dependencies": {
+    "@astryxdesign/core": "0.7.15",
+    "@stylexjs/stylex": "0.19.2",
     "better-auth": "1.7.22",
+    "next": "16.4.6",
     "nodemailer": "^10.5.0",
     "pg": "^8.23.1",
-    "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "0.7.15",
     "@types/node": "^24.19.2",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
-    "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
     "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0"
+    "@types/react-dom": "19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   }
 }

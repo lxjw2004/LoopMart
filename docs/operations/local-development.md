@@ -70,6 +70,10 @@ LOOPMART_ENV_FILE=.env.test LOOPMART_MODE=production npm run dev
 
 生产模式启动前需执行 `npm run build`（包含 standalone 静态资源整理）。测试执行时不要同时运行会修改运行配置的数据库集成测试。浏览器脚本使用真实 API 与隔离测试账号，生成的截图位于被忽略的 `.superpowers/e2e`。可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定已安装的测试 Chromium；默认使用 Playwright 管理的浏览器。
 
+Astryx 界面还有独立的浏览器回归，使用拦截的 API 数据，不访问数据库。先构建并启动两个 Web 应用，再运行 `.venv/bin/python tests/browser/astryx_ui.py`；可通过 `LOOPMART_WEB_URL`、`LOOPMART_ADMIN_URL` 指定测试地址。它检查中英文页面、移动布局、发布、聊天和管理确认操作。再运行 `.venv/bin/python tests/browser/design_language.py` 检查原设计的主题、导航、卡片比例、响应断点和后台密度；截图保存在 `.superpowers/e2e/astryx`。
+
+修改 `src/themes` 中的主题定义后运行 `npm run theme:build`，由 Astryx 生成 CSS 和类型文件；不要手动编辑生成文件。`npm run theme:check` 可验证其是否同步。用户端与后台通过同一主题基础继承各自的原有配色，页面内使用组件属性和主题 token。
+
 截图和报告不构成真实 SMTP 投递或 iOS 验收，本项目首版明确不包括这两项。
 
 集成测试入口会核验目标是本机 5433 端口的 `loopmart_test`，拒绝远程、开发库及可覆盖连接参数的查询字符串，校验通过前不会迁移或写入。

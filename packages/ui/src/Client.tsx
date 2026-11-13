@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, type ComponentProps } from "react";
 import DataForm from "./DataForm";
 import { parseRoute, legacyTarget, routeHref } from "./navigation";
 import WebShell from "./web/WebShell";
@@ -14,12 +14,34 @@ import ResourceDetail from "./admin/ResourceDetail";
 import ConfirmAction from "./admin/AdminForms";
 import Details from "./Details";
 import RideMeta from "./RideMeta";
-import { rideLocations } from "./ride-options";
-import { errorText } from "./errors";
+import RideLocationInput from "./shared/RideLocationInput";
+import { errorText, RequestError } from "./errors";
 import ProfileListings from "./ProfileListings";
 import { departureInstant, departureLocal, formatDeparture } from "./time";
 import { api, auth, conversationMessages } from "./api";
 import { labels } from "../../i18n/src";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Avatar } from "@astryxdesign/core/Avatar";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { DateInput } from "@astryxdesign/core/DateInput";
+import { EmptyState } from "@astryxdesign/core/EmptyState";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
+import { HStack } from "@astryxdesign/core/HStack";
+import { InternationalizationProvider } from "@astryxdesign/core/i18n";
+import zhCN from "@astryxdesign/core/locales/zh-CN.generated.js";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Section } from "@astryxdesign/core/Section";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { Text } from "@astryxdesign/core/Text";
+import { ToggleButton } from "@astryxdesign/core/ToggleButton";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { VStack } from "@astryxdesign/core/VStack";
+import { useLayout } from "./shared/design";
 type Row = Record<string, any>;
 const itemFields = {
   title: "text",
@@ -40,40 +62,47 @@ const rideFields = {
   feeDescription: "text",
   notes: "textarea",
 };
-export default function Client({ admin = false }: { admin?: boolean }) {
+export default function Client({ admin = false, initialLocation = "/" }: { admin?: boolean; initialLocation?: string }) {
+  const { mobile, desktop } = useLayout();
+  const [initialRoute] = useState(() => parseRoute(new URL(initialLocation, "http://loopmart.local"), admin));
+  const [routeId, setRouteId] = useState(initialRoute.id);
+  const [routeLoading, setRouteLoading] = useState(!["login", "publish", "not-found"].includes(initialRoute.page));
   const [en, setEn] = useState(false),
-    [page, setPage] = useState(admin ? "overview" : "items"),
+    [page, setPage] = useState(initialRoute.page),
     [rows, setRows] = useState<Row[]>([]),
     [detail, setDetail] = useState<Row | null>(null),
     [me, setMe] = useState<Row | null>(null),
     [sessionLoaded, setSessionLoaded] = useState(false),
-    [busy, setBusy] = useState(false),
+    [actionBusy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(null),
     [notice, setNotice] = useState(""),
-    [query, setQuery] = useState(""),
-    [status, setStatus] = useState(""),
+    [query, setQuery] = useState(initialRoute.query.get("q") || ""),
+    [status, setStatus] = useState(initialRoute.query.get("status") || ""),
     [cursor, setCursor] = useState<string | null>(null),
-    [editing, setEditing] = useState(false),
-    [kind, setKind] = useState("items"),
+    [editing, setEditing] = useState(Boolean(initialRoute.edit)),
+    [kind, setKind] = useState(initialRoute.page === "rides" || initialRoute.query.get("kind") === "rides" ? "rides" : "items"),
     [messages, setMessages] = useState<Row[]>([]),
     [refresh, setRefresh] = useState(0),
-    [mode, setMode] = useState("sign-in/email"),
-    [filters, setFilters] = useState<Row>({}),
+    [mode, setMode] = useState(initialRoute.query.has("token") ? "reset-password" : "sign-in/email"),
+    [filters, setFilters] = useState<Row>(Object.fromEntries([...initialRoute.query].filter(([key]) => !["q", "status", "kind", "cursor"].includes(key)))),
     [reference, setReference] = useState<Row | null>(null),
     [recipientQuery, setRecipientQuery] = useState(""),
     [recipientResults, setRecipientResults] = useState<Row[]>([]),
     [recipient, setRecipient] = useState<Row | null>(null);
   const [routeTick, setRouteTick] = useState(0);
-  const [requestedEdit,setRequestedEdit]=useState(false);
+  const [requestedEdit,setRequestedEdit]=useState(Boolean(initialRoute.edit));
+  const busy = actionBusy || routeLoading;
   const [officialSender,setOfficialSender]=useState<Row|null>(null);
   const [unreadCount,setUnreadCount]=useState(0);
   const [chatConnection,setChatConnection]=useState<"open"|"retrying">("open");
   const pendingRuns=useRef(0);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [confirmation, setConfirmation] = useState<{summary:string;confirm:(reason:string)=>Promise<void>;cancel:()=>void}|null>(null);
+  const [deleteAction, setDeleteAction] = useState<(() => Promise<void>) | null>(null);
   const listCache = useRef(new Map<string, {rows:Row[];cursor:string|null;query:string;filters:Row;scroll:number}>());
   const restoring = useRef(false);
   const selectionSeq=useRef(0);
+  const pendingScroll = useRef<{selection: number; top: number} | null>(null);
   const previousList=useRef<string|null>(null);
   const loadSeq = useRef(0);
   const readIds = useRef<Record<string, string>>({});
@@ -86,42 +115,57 @@ export default function Client({ admin = false }: { admin?: boolean }) {
     key.replace(/_/g, " ");
   const say = (zh: string, english: string) => (en ? english : zh);
   async function run(action: () => Promise<any>) {
-    const token=selectionSeq.current;pendingRuns.current++;setBusy(true);setError('');setNotice('');
-    try{return await action()}catch(e){if(token===selectionSeq.current&&!(e instanceof Error&&e.name==='AbortError'))setError(e)}finally{pendingRuns.current--;setBusy(pendingRuns.current>0)}
+    const token=selectionSeq.current, previousError=error;pendingRuns.current++;setBusy(true);setNotice('');
+    try{
+      const result=await action();
+      if(token===selectionSeq.current)setError((current: unknown)=>current===previousError?'':current);
+      return result;
+    }catch(e){if(token===selectionSeq.current&&!(e instanceof Error&&e.name==='AbortError'))setError(e)}finally{if(token===selectionSeq.current){pendingRuns.current--;setBusy(pendingRuns.current>0)}}
   }
   const base = admin ? "/admin/" : "/";
   useEffect(() => {
     document.documentElement.lang = en ? "en" : "zh";
   }, [en]);
   function go(next: string) {
-    loadSeq.current++;selectionSeq.current++;
-    history.pushState(null, "", routeHref(next, admin));
+    const target = routeHref(next, admin);
+    const current = parseRoute(new URL(location.href), admin);
+    if (current.page === next && !current.id && !current.edit && !current.query.size && !editing) return;
+    history.pushState(null, "", target);
     if(next === "login") setMode("sign-in/email");
-    setPage(next);setMessages([]);setReference(null);setRequestedEdit(false); setRows([]);setDetail(null); setEditing(false); setQuery("");setStatus("");setFilters({});setCursor(null);setError("");setNotice("");
-    window.scrollTo(0,0); setRouteTick(v=>v+1);
+    syncLocation();
   }
-  function syncLocation() {
+  function syncLocation(seed?: Row, initial = false) {
     const legacy = legacyTarget(new URL(location.href), admin);
     if (legacy) history.replaceState(null, "", legacy);
     const route = parseRoute(new URL(location.href), admin);
-    loadSeq.current++;selectionSeq.current++;
-    setPage(route.page);setMessages([]);setReference(null);setRequestedEdit(Boolean(route.edit));setRows([]); setEditing(Boolean(route.edit)); setDetail(null);setError("");setNotice("");
+    loadSeq.current++;selectionSeq.current++;pendingRuns.current=0;setBusy(false);
+    setPage(route.page);setRouteId(route.id);setMessages([]);setReference(null);setRequestedEdit(Boolean(route.edit));setRows(seed && route.page === page ? rows : []); setEditing(Boolean(route.edit)); setDetail(seed || null);setError("");setNotice("");
     setQuery(route.query.get("q") || "");setStatus(route.query.get("status")||"");
     const values=Object.fromEntries([...route.query].filter(([k])=>!["q","status","kind","cursor"].includes(k)));
     setFilters(values);setCursor(null);
     if(route.page==='publish'||route.edit||route.page==='profile')setKind(route.page==='rides'?'rides':route.query.get('kind')==='rides'?'rides':'items');
     if(route.page==='login'&&route.query.has('token'))setMode('reset-password');
     const cache = !route.id && listCache.current.get(location.pathname+location.search);
-    if(cache){setRows(cache.rows);setCursor(cache.cursor);setQuery(cache.query);setFilters(cache.filters);restoring.current=true;requestAnimationFrame(()=>window.scrollTo(0,cache.scroll));}
-    if(route.page==='user'&&route.id){const token=selectionSeq.current;api('/profiles/'+encodeURIComponent(route.id)).then(r=>{if(token===selectionSeq.current)setDetail(r)}).catch(e=>{if(token===selectionSeq.current&&!(e instanceof Error&&e.name==='AbortError'))setError(e)});}
+    restoring.current=Boolean(cache);
+    if(cache){setRows(cache.rows);setCursor(cache.cursor);setQuery(cache.query);setFilters(cache.filters);}
+    setRouteLoading(!cache && !["login", "publish", "not-found"].includes(route.page));
+    pendingScroll.current={selection:selectionSeq.current,top:cache ? cache.scroll : initial ? window.scrollY : 0};
     setRouteTick(v=>v+1);
   }
+  useLayoutEffect(() => {
+    const pending = pendingScroll.current;
+    if (pending && pending.selection === selectionSeq.current) {
+      window.scrollTo({top: pending.top, behavior: "instant"});
+      pendingScroll.current = null;
+    }
+  }, [routeTick]);
   useEffect(() => {
-    syncLocation();
-    window.addEventListener('popstate',syncLocation);
+    syncLocation(undefined, true);
+    const popstate = () => syncLocation();
+    window.addEventListener('popstate',popstate);
     try {setEn(localStorage.getItem("loopmart-language")==="en");}catch{}
     api("/me").then(setMe).catch(()=>setMe(null)).finally(()=>setSessionLoaded(true));
-    return()=>window.removeEventListener('popstate',syncLocation);
+    return()=>window.removeEventListener('popstate',popstate);
   }, []);
   useEffect(() => {
     if (sessionLoaded && me && page === "login" && mode === "sign-in/email" && !new URLSearchParams(location.search).has("token")) {
@@ -139,6 +183,43 @@ export default function Client({ admin = false }: { admin?: boolean }) {
   }
   async function load(append = false, override?: Row) {
     const seq = ++loadSeq.current;
+    const route = parseRoute(new URL(location.href), admin);
+    // A detail URL has a detail layout from the start; never load a list into it.
+    if (route.page === page && route.id) {
+      const id = encodeURIComponent(route.id);
+      try {
+        if (page === "conversations" && !admin) {
+          const [conversations, list] = await Promise.all([
+            conversationMessages("/conversations"),
+            conversationMessages("/conversations/" + id + "/messages"),
+          ]);
+          if (seq !== loadSeq.current) return;
+          const conversation = conversations.find((row: Row) => row.id === route.id);
+          if (!conversation) throw new RequestError(404, "NOT_FOUND", "Conversation unavailable");
+          setRows(conversations);setDetail(conversation);setMessages(list);
+          if (document.visibilityState === "visible" && list.length) {
+            await api("/conversations/" + id + "/read", "PUT", {messageId: list.at(-1)!.id});
+            readIds.current[route.id] = list.at(-1)!.id;
+          }
+        } else if (admin && ["conversations", "community-messages"].includes(page)) {
+          const [conversations, messages] = await Promise.all([
+            conversationMessages(base + page), conversationMessages(base + page + "/" + id),
+          ]);
+          if (seq !== loadSeq.current) return;
+          setRows(conversations);setDetail({...conversations.find((row: Row) => row.id === route.id), id: route.id, messages});
+        } else {
+          const record = await api(page === "user" ? "/profiles/" + id : base + page + "/" + id);
+          if (seq !== loadSeq.current) return;
+          setDetail(record);
+        }
+      } catch (failure) {
+        if (seq === loadSeq.current && failure instanceof RequestError && [401, 403, 404].includes(failure.status)) {
+          setDetail(null);listCache.current.clear();
+        }
+        throw failure;
+      }
+      return;
+    }
     const result = page === "conversations" && !admin ? await conversationMessages("/conversations") : await api(
       base +
         (page === "profile"
@@ -171,17 +252,14 @@ export default function Client({ admin = false }: { admin?: boolean }) {
       setDetail(result);
       setRows([]);
     }
-    const route=parseRoute(new URL(location.href),admin);
-    if(route.page===page&&route.id){
-      if(page==='conversations'&&!admin){const conversation=(Array.isArray(result)?result:result.data||[]).find((r:Row)=>r.id===route.id);if(!conversation)throw new Error(say('会话不可用','Conversation unavailable'));const list=await conversationMessages('/conversations/'+route.id+'/messages');if(seq!==loadSeq.current)return;setDetail(conversation);setMessages(list);if(document.visibilityState==='visible'&&list.length)await api('/conversations/'+route.id+'/read','PUT',{messageId:list.at(-1)!.id});}
-      else {const chat=admin&&['conversations','community-messages'].includes(page);const record=chat?await conversationMessages(base+page+'/'+encodeURIComponent(route.id)):await api(base+page+'/'+encodeURIComponent(route.id)); if(seq!==loadSeq.current)return;setDetail(chat?{...(Array.isArray(result)?result:result.data||[]).find((r:Row)=>r.id===route.id),id:route.id,messages:record}:record);}
-    }
   }
   useEffect(() => {
-    if (!sessionLoaded || (admin && (!me || me.role !== "admin"))) return;
-    if (["login", "publish", "user", "not-found"].includes(page)) return;
-    if(restoring.current){restoring.current=false;return;}
-    run(() => load());
+    if (!sessionLoaded) return;
+    if ((admin && (!me || me.role !== "admin")) || (!admin && !me && ["publish", "conversations", "favorites", "profile"].includes(page))
+      || ["login", "publish", "not-found"].includes(page)) { setRouteLoading(false);return; }
+    if(restoring.current){restoring.current=false;setRouteLoading(false);return;}
+    const selection = selectionSeq.current;
+    run(() => load()).finally(() => {if (selection === selectionSeq.current) setRouteLoading(false);});
   }, [page, refresh, routeTick, sessionLoaded, me?.id, me?.role, page === "profile" ? kind : null]);
   useEffect(() => {
     if(admin||!me)return;
@@ -192,27 +270,35 @@ export default function Client({ admin = false }: { admin?: boolean }) {
     return()=>{active=false;events.close();document.removeEventListener('visibilitychange',update)};
   },[admin,page,me?.id,detail?.id]);
   async function open(row:Row){
-    listCache.current.set(location.pathname+location.search,{rows,cursor,query,filters,scroll:window.scrollY});
-    previousList.current=location.pathname+location.search;
+    if (!routeId) {
+      listCache.current.set(location.pathname+location.search,{rows,cursor,query,filters,scroll:window.scrollY});
+      previousList.current=location.pathname+location.search;
+    }
     const resource=page==='favorites'?'items':page==='profile'?kind:page;
-    history.pushState(null,'',routeHref(resource,admin,row.id));syncLocation();
+    history.pushState(null,'',routeHref(resource,admin,row.id));syncLocation(row);
   }
   function backToList(){
     if(previousList.current){history.pushState(null,'',previousList.current);previousList.current=null;syncLocation();}
     else go(page==='rides'?'rides':'items');
   }
-  async function performWrite(path:string,method:string,value:Row){
+  async function performWrite(path:string,method:string,value:Row,selection=selectionSeq.current){
     const result=await api(path,method,value);
     listCache.current.clear();
-    if(detail?.id&&method==='PATCH')setDetail(await api(path));
-    if(method==='DELETE'){setDetail(null);history.replaceState(null,'',routeHref(page,admin));}
+    if (selection !== selectionSeq.current) return result;
+    if(detail?.id&&method==='PATCH'){
+      const record = await api(path);
+      if (selection !== selectionSeq.current) return result;
+      setDetail(record);
+    }
+    if(method==='DELETE'){setDetail(null);setRouteId(undefined);history.replaceState(null,'',routeHref(page,admin));}
     setRefresh(x=>x+1);setEditing(false);return result;
   }
   async function write(path:string,method:string,value:Row):Promise<any>{
     if(!admin)return performWrite(path,method,value);
+    const selection = selectionSeq.current;
     return new Promise((resolve,reject)=>setConfirmation({
       summary: `${page==='community-messages'?say('发送身份','Sender')+': '+(officialSender?.name||say('未配置','Not configured'))+' · '+say('收件人','Recipient')+': '+(recipient?.name||say('未选择','Not selected'))+'\n':''}${t(page)} · ${detail?.title||detail?.name||detail?.subject||say('新记录','New record')} · ${method==='DELETE'?say('删除','Delete'):path.endsWith('/password')?say('修改密码','Change password'):say('保存更改','Save changes')}\n${Object.entries(value).filter(([k])=>!/(password|token|secret|userId)/i.test(k)).map(([k,v])=>t(k)+': '+String(Array.isArray(v)?v.join(', '):v).slice(0,160)).join('\n')}`,
-      confirm:async(reason)=>{const result=await performWrite(path,method,{...value,reason});setConfirmation(null);resolve(result)},
+      confirm:async(reason)=>{const result=await performWrite(path,method,{...value,reason},selection);setConfirmation(null);resolve(result)},
       cancel:()=>{setConfirmation(null);reject(new DOMException('Action cancelled','AbortError'))}
     }));
   }
@@ -223,27 +309,29 @@ export default function Client({ admin = false }: { admin?: boolean }) {
     const c=await api('/conversations','POST',{otherUserId:listing.publisherId});
     if(token!==selectionSeq.current)return;
     const listingKind=page==='rides'?'ride':'item';
-    go('conversations');history.replaceState(null,'',routeHref('conversations',false,c.id));
-    setReference({type:listingKind,id:listing.id});setDetail({...c,otherUser:{id:listing.publisherId,name:listing.publisherName}});
-    const chatToken=selectionSeq.current;const list=await conversationMessages('/conversations/'+c.id+'/messages');if(chatToken===selectionSeq.current)setMessages(list);
+    history.pushState(null,'',routeHref('conversations',false,c.id));
+    syncLocation({...c,otherUser:{id:listing.publisherId,name:listing.publisherName}});
+    setReference({type:listingKind,id:listing.id});
   }
+  const stickyBrowseTitle=!admin&&desktop&&sessionLoaded&&!routeId&&!editing&&['items','rides'].includes(page);
   const Shell=admin?AdminShell:WebShell;
+  const reportProps = {t, say, run, busy, kind};
   return (
-    <Shell page={page} me={me} english={en} unreadCount={unreadCount} onNavigate={go} onLanguageChange={language}
+    <InternationalizationProvider locale={en ? "en" : "zh-CN"} messages={{ "zh-CN": zhCN }}>
+    <Shell page={page} me={me} english={en} unreadCount={unreadCount} chatActive={!admin && page === "conversations" && Boolean(routeId || detail)} onNavigate={go} onLanguageChange={language}
       onLogout={()=>run(async()=>{await auth('sign-out',{});setMe(null);go('login')})}
-      onSearch={(q:string)=>{go('items');setQuery(q);history.replaceState(null,'','/items?q='+encodeURIComponent(q));setRouteTick(v=>v+1)}}>
+      onSearch={(q:string)=>{history.pushState(null,'','/items?q='+encodeURIComponent(q));syncLocation()}}>
       {confirmation&&<ConfirmAction title={say('确认操作','Confirm action')} summary={confirmation.summary} onConfirm={confirmation.confirm} onClose={confirmation.cancel} english={en}/>}
-      <main className={admin?'admin-page-content':'web-main'}>
-        <h1>{admin?({items:say('商品','Items'),conversations:say('会话','Conversations'),contact:say('联系表单','Contact'),audit:say('审计日志','Audit log')} as Row)[page]||t(page):t(page)}</h1>
-        {me?.banned && (
-          <p role="alert" className="error">
-            {say("账号已封禁", "Account suspended")}
-          </p>
-        )}
+      <AlertDialog isOpen={Boolean(deleteAction)} onOpenChange={open => { if (!open && !busy) setDeleteAction(null); }}
+        title={say("删除发布", "Delete listing")} description={say("确认删除此发布？", "Delete this listing?")}
+        actionLabel={say("删除", "Delete")} cancelLabel={say("取消", "Cancel")} isActionLoading={busy}
+        onAction={() => run(async () => { await deleteAction?.(); setDeleteAction(null); })} />
+      <VStack gap={6} width="100%" style={{position: "relative", minWidth: 0, flexGrow: admin ? undefined : 1, height: !admin && page === "conversations" && (routeId || detail) ? "var(--lm-chat-content-height)" : undefined}} className={admin?'admin-page-content':'web-page-content'}>
+        {!stickyBrowseTitle && !(!admin && mobile && page === "conversations" && (routeId || detail)) && <Heading level={1} style={admin && page === "login" ? {maxWidth:"var(--lm-auth-width)",width:"100%",marginInline:"auto",marginBlockStart:"5vh"} : !admin && page === "conversations" && (routeId || detail) ? {display:"var(--lm-chat-heading-display)"} : undefined}>{admin?({items:say('商品','Items'),conversations:say('会话','Conversations'),contact:say('联系表单','Contact'),audit:say('审计日志','Audit log')} as Row)[page]||t(page):t(page)}</Heading>}
+        {me?.banned && <Banner status="error" title={say("账号已封禁", "Account suspended")} role="alert" />}
         {me && !me.emailVerified && (
-          <div className="panel">
-            {say("请验证邮箱以继续", "Verify your email to continue")}{" "}
-            <button
+          <Banner status="warning" title={say("请验证邮箱以继续", "Verify your email to continue")}
+            endContent={<Button label={say("重发验证邮件", "Resend verification")}
               onClick={() =>
                 run(() =>
                   auth("send-verification-email", {
@@ -252,26 +340,22 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                   }),
                 )
               }
-            >
-              {say("重发验证邮件", "Resend verification")}
-            </button>
-          </div>
+            />} />
         )}
         {Boolean(error) && (
-          <div role="alert" className="error">
-            {errorText(error, en)}
-            {!["login", "publish"].includes(page) && !editing && (
-              <button onClick={() => setRefresh((x) => x + 1)}>
-                {say("重试", "Retry")}
-              </button>
-            )}
-          </div>
+          <Banner status="error" title={errorText(error, en)} role="alert"
+            endContent={!["login", "publish"].includes(page) && !editing && (
+              <Button label={say("重试", "Retry")} onClick={() => setRefresh((x) => x + 1)} />
+            )} />
         )}
-        {notice && <p role="status">{notice}</p>}
-        {busy && <p role="status">{t("loading")}</p>}
-        {page === "not-found" ? <div className="empty-state">{say("页面不存在","Page not found")}<button onClick={()=>go(admin?"overview":"items")}>{t("back")}</button></div> : page === "login" ? (
-          <section className="auth-page">
-            <div className="toolbar auth-modes">
+        {notice && <Banner status="success" title={notice} role="status" />}
+        {/* Request feedback must not add a row or gap to the page layout. */}
+        {busy && <VStack style={{position: "absolute", insetBlockStart: 0, insetInlineEnd: 0, pointerEvents: "none", zIndex: 1}}>
+          <Spinner aria-label={t("loading")} />
+        </VStack>}
+        {page === "not-found" ? <EmptyState headingLevel={2} title={say("页面不存在","Page not found")} actions={<Button width="fit-content" label={t("back")} onClick={()=>go(admin?"overview":"items")} />} /> : page === "login" ? (
+          <VStack gap={6} className="auth-page" width="100%" maxWidth={admin ? "var(--lm-auth-width)" : undefined} style={{marginInline: admin ? "auto" : undefined}}>
+            <HStack gap={3} wrap="wrap" vAlign="center" className="toolbar auth-modes">
               {[
                 "sign-in/email",
                 ...(!admin ? ["sign-up/email"] : []),
@@ -280,7 +364,23 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                 "send-verification-email",
                 ...(me?["change-email", "change-password"]:[]),
               ].map((x) => (
-                <button key={x} type="button" aria-pressed={mode === x} onClick={() => {setMode(x);setError("");setNotice("")}}>
+                <ToggleButton label={(
+                      {
+                        "sign-in/email": say("登录", "Sign in"),
+                        "sign-up/email": say("注册", "Register"),
+                        "request-password-reset": say(
+                          "忘记密码",
+                          "Forgot password",
+                        ),
+                        "reset-password": say("重设密码", "Reset password"),
+                        "send-verification-email": say(
+                          "重发验证邮件",
+                          "Resend verification",
+                        ),
+                        "change-email": say("修改邮箱", "Change email"),
+                        "change-password":say("修改密码","Change password"),
+                      } as Row
+                    )[x]} key={x} isPressed={mode === x} onPressedChange={() => {setMode(x);setError("");setNotice("")}}>
                   {
                     (
                       {
@@ -300,10 +400,11 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                       } as Row
                     )[x]
                   }
-                </button>
+                </ToggleButton>
               ))}
-            </div>
+            </HStack>
             <DataForm
+              submitFullWidth
               key={mode}
               submitLabel={({
                 "sign-in/email": say("登录", "Sign in"),
@@ -361,39 +462,48 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                 }
               }}
             />
-          </section>
+          </VStack>
         ) : !sessionLoaded ? (
-          <p role="status">{t("loading")}</p>
+          <Text as="p" role="status">{t("loading")}</Text>
         ) : admin && (!me || me.role !== "admin") ? (
-          <div className="panel">
-            {say("需要管理员权限", "Administrator access required")}{" "}
-            <button onClick={() => go("login")}>{t("login")}</button>
-          </div>
+          <VStack gap={4} className="panel">
+            <Text>{say("需要管理员权限", "Administrator access required")}</Text>
+            <Button label={t("login")} onClick={() => go("login")} />
+          </VStack>
         ) : !admin &&
           !me &&
           ["publish", "conversations", "favorites", "profile"].includes(
             page,
           ) ? (
-          <div className="panel">
-            <button onClick={() => go("login")}>{t("login")}</button>
-          </div>
-        ) : editing && !detail && (requestedEdit || !admin) ? <p role="status">{error?say('内容不可用','Listing unavailable'):t('loading')}</p>
-        : editing && !admin && detail?.publisherId!==me?.id ? <p role="alert">{say('无权编辑此内容','You cannot edit this listing')}</p>
+          <VStack gap={4} className="panel">
+            <Button label={t("login")} onClick={() => go("login")} />
+          </VStack>
+        ) : (routeId && !detail) || (routeLoading && !detail && !["items", "rides", "favorites", "conversations"].includes(page)) ? (
+          error ? <EmptyState headingLevel={2} title={say("内容不可用", "Content unavailable")} /> :
+          <VStack className="route-loading" aria-busy="true" gap={5} minHeight="60vh">
+            <Skeleton height="calc(var(--spacing-12) * 4)" />
+            <Skeleton height="var(--spacing-8)" />
+          </VStack>
+        ) : editing && !detail && (requestedEdit || !admin) ? <Text as="p" role="status">{error?say('内容不可用','Listing unavailable'):t('loading')}</Text>
+        : editing && !admin && detail?.publisherId!==me?.id ? <Text as="p" role="alert">{say('无权编辑此内容','You cannot edit this listing')}</Text>
         : !admin && (page === "publish" || editing) ? (
-          <><div className="publish-tabs actions">{!editing&&['items','rides'].map(k=><button key={k} aria-pressed={kind===k} onClick={()=>{setKind(k);history.replaceState(null,'','/publish?kind='+k)}}>{t(k)}</button>)}</div>
+          <><HStack gap={3} wrap="wrap" vAlign="center" className="publish-tabs actions">{!editing&&['items','rides'].map(k=><ToggleButton label={t(k)} key={k} isPressed={kind===k} onPressedChange={()=>{if(kind===k)return;history.replaceState(null,'','/publish?kind='+k);syncLocation(undefined,true)}}>{t(k)}</ToggleButton>)}</HStack>
           <PublishPage kind={kind} id={editing?detail?.id:undefined} ownerId={me?.id} t={t} say={say} run={run} busy={busy}
           initial={editing?(detail?.departureTime?{...detail,departureTime:departureLocal(detail.departureTime,detail.timeZone)}:detail||{}):undefined}
-          submit={async(v)=>{const resource=kind;const result=await write('/'+resource+(editing&&detail?.id?'/'+detail.id:''),editing&&detail?.id?'PATCH':'POST',resource==='rides'?{...v,departureTime:departureInstant(v.departureTime,v.timeZone)}:v);go(resource);if(result?.id){history.replaceState(null,'',routeHref(resource,false,result.id));setDetail(result)} }} /></>
+          submit={async(v)=>{
+            const resource=kind, selection=selectionSeq.current;
+            const result=await write('/'+resource+(editing&&detail?.id?'/'+detail.id:''),editing&&detail?.id?'PATCH':'POST',resource==='rides'?{...v,departureTime:departureInstant(v.departureTime,v.timeZone)}:v);
+            if (selection !== selectionSeq.current) return;
+            if(result?.id){history.pushState(null,'',routeHref(resource,false,result.id));syncLocation(result)}else go(resource);
+          }} /></>
         ) : page === "publish" || editing ? (
           <>
-            <div className="toolbar">
+            <HStack gap={3} wrap="wrap" vAlign="center" className="toolbar">
               {!editing &&
                 ["items", "rides"].map((x) => (
-                  <button key={x} onClick={() => setKind(x)}>
-                    {t(x)}
-                  </button>
+                  <Button label={t(x)} key={x} onClick={() => setKind(x)} />
                 ))}
-            </div>
+            </HStack>
             <DataForm
               t={t}
               say={say}
@@ -423,6 +533,7 @@ export default function Client({ admin = false }: { admin?: boolean }) {
               }
               draft={!editing && !admin}
               submit={async (v) => {
+                const selection = selectionSeq.current;
                 await write(
                   base + kind + (editing && detail?.id ? "/" + detail.id : ""),
                   editing && detail?.id ? "PATCH" : "POST",
@@ -436,12 +547,12 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                       }
                     : v,
                 );
-                go(kind);
+                if (selection === selectionSeq.current) go(kind);
               }}
             />
           </>
         ) : page === "contact" && !admin && detail?.contactEnabled === false ? (
-          <p>{say("联系表单暂不可用", "Contact form unavailable")}</p>
+          <Text as="p">{say("联系表单暂不可用", "Contact form unavailable")}</Text>
         ) : page === "contact" && !admin ? (
           <DataForm
             t={t}
@@ -453,10 +564,10 @@ export default function Client({ admin = false }: { admin?: boolean }) {
             submit={(v) => api("/contact", "POST", v)}
           />
         ) : page === "privacy" ? (
-          <article className="panel">
-            {detail?.[en ? "privacyPolicyEn" : "privacyPolicyZh"] ||
-              say("暂无政策", "Policy unavailable")}
-          </article>
+          <Section variant="form-panel" className="panel"><VStack as="article" gap={4}>
+            <Text as="p" style={{ whiteSpace: "pre-wrap" }}>{detail?.[en ? "privacyPolicyEn" : "privacyPolicyZh"] ||
+              say("暂无政策", "Policy unavailable")}</Text>
+          </VStack></Section>
         ) : page === "settings" && admin ? (
           <DataForm
             t={t}
@@ -497,33 +608,25 @@ export default function Client({ admin = false }: { admin?: boolean }) {
             }
           />
         ) : page === "conversations" && !admin ? (
-          <MessagesPage connectionState={chatConnection} rows={rows} detail={detail} messages={messages} me={me} english={en} onOpen={open} onBack={()=>go('conversations')}
+          <MessagesPage loading={routeLoading} connectionState={chatConnection} rows={rows} detail={detail} messages={messages} me={me} english={en} onOpen={open} onBack={()=>go('conversations')}
             reference={reference as {type:string;id:string}|null} onClearReference={()=>setReference(null)}
             onProfile={(id)=>{history.pushState(null,'',routeHref('user',false,id));syncLocation()}}
             onReferenceOpen={(type,id)=>{history.pushState(null,'',routeHref(type==='rides'||type==='ride'?'rides':'items',false,id));syncLocation()}}
-            report={detail?<Report type="conversation" id={detail.id}/>:null}
+            report={detail?<Report key={detail.id} {...reportProps} type="conversation" id={detail.id}/>:null}
             onSend={async(text)=>{const conversationId=detail!.id;const token=selectionSeq.current;const key=JSON.stringify([conversationId,text]);let pending=pendingMessages.current.get(key);if(!pending){pending={id:crypto.randomUUID(),reference};pendingMessages.current.set(key,pending)}await api('/conversations/'+conversationId+'/messages','POST',{text,clientId:pending.id,...(pending.reference?{reference:pending.reference}:{})});pendingMessages.current.delete(key);if(token===selectionSeq.current)setReference(null);try{const list=await conversationMessages('/conversations/'+conversationId+'/messages');if(token===selectionSeq.current)setMessages(list)}catch{/* The acknowledged send succeeds; SSE/reconnect catches up the display. */}}} />
         ) : !admin && detail && ['items','rides','favorites'].includes(page) ? (
           <ListingDetail row={detail} kind={page==='rides'?'rides':'items'} english={en} t={t} onBack={backToList}
           onProfile={()=>{history.pushState(null,'',routeHref('user',false,detail.publisherId));syncLocation()}}
-          report={<Report type={page==='rides'?'ride':'item'} id={detail.id}/>}
-          actions={<>{detail.publisherId===me?.id?<><button onClick={()=>{setKind(page==='rides'?'rides':'items');setEditing(true);history.pushState(null,'',routeHref(page==='rides'?'rides':'items',false,detail.id)+'/edit')}}>{say('编辑','Edit')}</button><button className="secondary" onClick={()=>run(()=>write('/'+(page==='rides'?'rides':'items')+'/'+detail.id,'PATCH',{status:detail.status==='active'?'deactivated':'active'}))} disabled={!['active','deactivated'].includes(detail.status)}>{detail.status==='active'?say('下架','Deactivate'):say('上架','Activate')}</button><button className="text-button danger" onClick={()=>{if(confirm(say('确认删除此发布？','Delete this listing?')))run(()=>write('/'+(page==='rides'?'rides':'items')+'/'+detail.id,'DELETE',{}))}}>{say('删除','Delete')}</button></>:<button className="listing-contact" onClick={()=>run(contactListing)} disabled={detail.status!=='active'}>{say(page==='rides'?'联系车主':'联系卖家',page==='rides'?'Contact driver':'Contact seller')}</button>}{page!=='rides'&&<button className="secondary" onClick={()=>run(()=>toggleFavorite(detail))}>{favoriteIds.has(detail.id)?say('取消收藏','Remove favorite'):say('收藏','Save item')}</button>}</>}/>
+          report={<Report key={detail.id} {...reportProps} type={page==='rides'?'ride':'item'} id={detail.id}/>}
+          actions={<>{detail.publisherId===me?.id?<><Button label={say('编辑','Edit')} onClick={()=>{setKind(page==='rides'?'rides':'items');setEditing(true);history.pushState(null,'',routeHref(page==='rides'?'rides':'items',false,detail.id)+'/edit')}} /><Button label={detail.status==='active'?say('下架','Deactivate'):say('上架','Activate')} className="secondary" onClick={()=>run(()=>write('/'+(page==='rides'?'rides':'items')+'/'+detail.id,'PATCH',{status:detail.status==='active'?'deactivated':'active'}))} isDisabled={!['active','deactivated'].includes(detail.status)} /><Button label={say('删除','Delete')} className="text-button danger" variant="destructive" onClick={()=>{const path="/"+(page==="rides"?"rides":"items")+"/"+detail.id;setDeleteAction(()=>async()=>{await write(path,"DELETE",{});})}} /></>:<Button variant="primary" label={say(page==='rides'?'联系车主':'联系卖家',page==='rides'?'Contact driver':'Contact seller')} className="listing-contact" width={mobile ? "calc(100% - var(--lm-page-gutter) * 2)" : "100%"} style={mobile ? {position:"fixed",insetInline:"var(--lm-page-gutter)",bottom:"calc(var(--lm-mobile-nav-height) + var(--spacing-2) + env(safe-area-inset-bottom))",zIndex:19} : undefined} onClick={()=>run(contactListing)} isDisabled={detail.status!=='active'} />}{page!=='rides'&&<Button label={favoriteIds.has(detail.id)?say('取消收藏','Remove favorite'):say('收藏','Save item')} className="secondary" onClick={()=>run(()=>toggleFavorite(detail))} />}</>}/>
         ) : !admin && !detail && ['items','rides','favorites'].includes(page) ? (
           <BrowsePage simple={page==='favorites'} kind={page==='rides'?'rides':'items'} rows={rows} query={query} filters={filters} cursor={cursor} busy={busy} english={en} t={t} onApply={applyBrowse} onMore={()=>run(()=>load(true))} onOpen={open} onFavorite={(row)=>run(()=>toggleFavorite(row))} favorites={favoriteIds}/>
         ) : detail &&
           page !== "overview" &&
           !(page === "profile" && !detail.id) ? (
-          <section className="panel">
-            <button onClick={()=>{history.pushState(null,'',routeHref(page,admin));syncLocation()}}>{t("back")}</button>
-            <h2 hidden={admin}>
-              {detail.title ||
-                detail.name ||
-                [detail.origin, detail.destination]
-                  .filter(Boolean)
-                  .join(" → ") ||
-                detail.id}
-            </h2>
-            {admin ? <ResourceDetail resource={page} detail={detail} english={en} t={t}/> : <div className="profile-heading"><span className="avatar">{String(detail.name||'L')[0]}</span><h2>{detail.name}</h2></div>}
+          <Section variant={admin ? "transparent" : "form-panel"} padding={admin ? 0 : undefined} className="panel"><VStack gap={6}>
+            <Button width="fit-content" label={t("back")} onClick={()=>{history.pushState(null,'',routeHref(page,admin));syncLocation()}} />
+            {admin ? <ResourceDetail resource={page} detail={detail} english={en} t={t}/> : <HStack gap={3} wrap="wrap" vAlign="center" className="profile-heading"><Avatar name={String(detail.name||"L")} /><Heading level={2}>{detail.name}</Heading></HStack>}
             {page === "user" && (
               <ProfileListings
                 english={en}
@@ -532,11 +635,11 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                 onOpen={(type,row)=>{history.pushState(null,'',routeHref(type,false,row.id));syncLocation()}}
               />
             )}
-            <div className="actions">
+            <HStack gap={3} wrap="wrap" vAlign="center" className="actions">
               {["items", "rides", "favorites", "profile"].includes(page) &&
                 (admin || detail.publisherId === me?.id) && (
                   <>
-                    <button
+                    <Button label={say("编辑", "Edit")}
                       onClick={() => {
                         setKind(
                           page === "favorites"
@@ -547,10 +650,8 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                         );
                         setEditing(true);
                       }}
-                    >
-                      {say("编辑", "Edit")}
-                    </button>
-                    <button
+                     />
+                    <Button label={say("删除", "Delete")}
                       onClick={() =>
                         run(() =>
                           write(
@@ -567,12 +668,10 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                           ),
                         )
                       }
-                    >
-                      {say("删除", "Delete")}
-                    </button>
+                     />
                     {(admin || detail.publisherId === me?.id) &&
                       ["active", "deactivated"].includes(detail.status) && (
-                        <button
+                        <Button label={say("切换上下架", "Toggle listing")}
                           onClick={() =>
                             run(() =>
                               write(
@@ -594,15 +693,13 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                               ),
                             )
                           }
-                        >
-                          {say("切换上下架", "Toggle listing")}
-                        </button>
+                         />
                       )}
                   </>
                 )}
               {!admin && ["items", "rides"].includes(page) && (
                 <>
-                  <button
+                  <Button label={t("conversations")}
                     onClick={() =>
                       run(async () => {
                         const c = await api("/conversations", "POST", {
@@ -626,42 +723,36 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                         setMessages(ms);
                       })
                     }
-                  >
-                    {t("conversations")}
-                  </button>
+                   />
                   {page === "items" && (
                     <>
-                      <button
+                      <Button label={t("favorites")}
                         onClick={() =>
                           run(() => api("/favorites/" + detail.id, "PUT"))
                         }
-                      >
-                        {t("favorites")}
-                      </button>
-                      <button
+                       />
+                      <Button label={say("取消收藏", "Remove favorite")}
                         onClick={() =>
                           run(() => api("/favorites/" + detail.id, "DELETE"))
                         }
-                      >
-                        {say("取消收藏", "Remove favorite")}
-                      </button>
+                       />
                     </>
                   )}
-                  <button
+                  <Button label={say("发布者资料", "Publisher profile")}
                     onClick={() =>
                       run(async () => {
                         setDetail(await api("/profiles/" + detail.publisherId));
                         setPage("user");
                       })
                     }
-                  >
-                    {say("发布者资料", "Publisher profile")}
-                  </button>
+                   />
                 </>
               )}
-            </div>
+            </HStack>
             {!admin && (
               <Report
+                key={detail.id}
+                {...reportProps}
                 type={
                   page === "user"
                     ? "user"
@@ -726,7 +817,7 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                     write("/admin/users/" + detail.id + "/password", "POST", v)
                   }
                 />
-                <button
+                <Button label={say("发送密码重置", "Send password reset")}
                   onClick={() =>
                     run(() =>
                       write(
@@ -736,9 +827,7 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                       ),
                     )
                   }
-                >
-                  {say("发送密码重置", "Send password reset")}
-                </button>
+                 />
               </>
             )}
             {admin && page === "contact" && (
@@ -770,15 +859,16 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                 submit={(v) => write("/admin/reports/" + detail.id, "PATCH", v)}
               />
             )}
-          </section>
+          </VStack></Section>
         ) : (
           <>
             {page === "profile" && (
               <>
-                <div className="actions"><button className="secondary" onClick={()=>go('favorites')}>{say('收藏','Saved items')}</button><button className="secondary" onClick={()=>{go('login');setMode('change-email')}}>{say('修改邮箱','Change email')}</button><button className="secondary" onClick={()=>{go('login');setMode('change-password')}}>{say('修改密码','Change password')}</button><button className="text-button" onClick={()=>run(async()=>{await auth('sign-out',{});setMe(null);go('login')})}>{say('退出','Sign out')}</button></div>
-                <button
+                <HStack gap={3} wrap="wrap" vAlign="center" className="actions"><Button label={say('收藏','Saved items')} className="secondary" onClick={()=>go('favorites')} /><Button label={say('修改邮箱','Change email')} className="secondary" onClick={()=>{go('login');setMode('change-email')}} /><Button label={say('修改密码','Change password')} className="secondary" onClick={()=>{go('login');setMode('change-password')}} /><Button variant="ghost" label={say('退出','Sign out')} className="text-button" onClick={()=>run(async()=>{await auth('sign-out',{});setMe(null);go('login')})} /></HStack>
+                <Button label={say("联系社区管理员", "Contact community administrator")}
                   onClick={() =>
                     run(async () => {
+                      const selection = selectionSeq.current;
                       const settings = await api("/public/settings");
                       if (!settings.communityAdminUserId)
                         throw new Error(
@@ -787,26 +877,16 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                             "Community administrator unavailable",
                           ),
                         );
-                      const c = await api("/conversations", "POST", {
-                        otherUserId: settings.communityAdminUserId,
-                      });
-                      go("conversations");history.replaceState(null,'',routeHref('conversations',false,c.id));
-                      setDetail({
-                        ...c,
-                        otherUser: await api(
-                          "/profiles/" + settings.communityAdminUserId,
-                        ),
-                      });
-                      setMessages(
-                        await conversationMessages(
-                          "/conversations/" + c.id + "/messages",
-                        ),
-                      );
+                      const [c, otherUser] = await Promise.all([
+                        api("/conversations", "POST", {otherUserId: settings.communityAdminUserId}),
+                        api("/profiles/" + settings.communityAdminUserId),
+                      ]);
+                      if (selection !== selectionSeq.current) return;
+                      history.pushState(null,'',routeHref('conversations',false,c.id));
+                      syncLocation({...c, otherUser});
                     })
                   }
-                >
-                  {say("联系社区管理员", "Contact community administrator")}
-                </button>
+                 />
                 <DataForm
                   t={t}
                   say={say}
@@ -820,214 +900,87 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                     setMe(await api("/me"));
                   }}
                 />
-                <div className="actions">
-                  <button
-                    aria-pressed={kind === "items"}
-                    onClick={() => {
-                      setRows([]);setKind("items");history.replaceState(null,'','/account/listings?kind=items');
-                      setCursor(null);
-                      setDetail(null);
+                <HStack gap={3} wrap="wrap" vAlign="center" className="actions">
+                  <ToggleButton label={t("items")}
+                    isPressed={kind === "items"}
+                    onPressedChange={() => {
+                      if (kind === "items") return;
+                      history.replaceState(null,'','/account/listings?kind=items');syncLocation(undefined,true);
                     }}
                   >
                     {t("items")}
-                  </button>
-                  <button
-                    aria-pressed={kind === "rides"}
-                    onClick={() => {
-                      setRows([]);setKind("rides");history.replaceState(null,'','/account/listings?kind=rides');
-                      setCursor(null);
-                      setDetail(null);
+                  </ToggleButton>
+                  <ToggleButton label={t("rides")}
+                    isPressed={kind === "rides"}
+                    onPressedChange={() => {
+                      if (kind === "rides") return;
+                      history.replaceState(null,'','/account/listings?kind=rides');syncLocation(undefined,true);
                     }}
                   >
                     {t("rides")}
-                  </button>
-                </div>
+                  </ToggleButton>
+                </HStack>
               </>
             )}
             {page === "overview" ? (
-              <section className="grid">
+              <Grid columns={{minWidth: 240, max: 4}} gap={5} className="grid admin-metrics">
                 {Object.entries(detail || {}).map(([k, v]) => (
-                  <article className="card" key={k}>
-                    <small>{t(k)}</small>
-                    <b>{String(v)}</b>
-                  </article>
+                  <Card className="admin-metric" data-testid="admin-metric" key={k}><VStack gap={4}>
+                    <Text type="supporting">{t(k)}</Text>
+                    <Text type="display-3" hasTabularNumbers>{String(v)}</Text></VStack>
+                  </Card>
                 ))}
-              </section>
+              </Grid>
             ) : (
               <>
-                <form
-                  className="toolbar"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    run(() => load());
-                  }}
-                >
-                  <input
-                    aria-label={t("search")}
-                    placeholder={t("search")}
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                  {(admin || page === "profile") && (
-                    <select
-                      aria-label={t("status")}
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
-                    >
-                      {(page === "contact"
-                        ? ["", "open", "resolved"]
-                        : page === "users"
-                          ? ["", "active", "banned"]
-                          : page === "reports"
-                            ? [
-                                "",
-                                "pending",
-                                "reviewed",
-                                "dismissed",
-                                "violation_confirmed",
-                              ]
-                            : [
-                                "",
-                                "active",
-                                "deactivated",
-                                "reported",
-                                "deactivated_violation",
-                              ]
-                      ).map((x) => (
-                        <option key={x} value={x}>
-                          {x ? t(x) : say("全部", "All")}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {(admin
-                    ? page === "users"
-                      ? ["role", "banned"]
-                      : page === "reports"
-                        ? [
-                            "targetType",
-                            "reason",
-                            "targetId",
-                            "reporterId",
-                            "from",
-                            "to",
-                          ]
-                        : page === "audit"
-                          ? [
-                              "action",
-                              "actorId",
-                              "resource",
-                              "resourceId",
-                              "from",
-                              "to",
-                            ]
-                          : page === "items"
-                            ? ["category", "publisherId", "from", "to"]
-                            : page === "rides"
-                              ? [
-                                  "origin",
-                                  "destination",
-                                  "publisherId",
-                                  "date",
-                                  "from",
-                                  "to",
-                                ]
-                              : page === "conversations" ||
-                                  page === "community-messages"
-                                ? ["from", "to"]
-                                : []
-                    : page === "items"
-                      ? ["category"]
-                      : page === "rides"
-                        ? ["origin", "destination", "date"]
-                        : []
-                  ).map((k) => {
-                    const options = (
-                      {
-                        category: itemFields.category,
-                        role: ["member", "admin"],
-                        banned: ["true", "false"],
-                        targetType: ["item", "ride", "user", "conversation"],
-                      } as Record<string, string[]>
-                    )[k];
-                    return options ? (
-                      <select
-                        key={k}
-                        aria-label={t(k)}
-                        value={filters[k] || ""}
-                        onChange={(e) =>
-                          setFilters({ ...filters, [k]: e.target.value })
-                        }
-                      >
-                        <option value="">{t(k)}</option>
-                        {options.map((x) => (
-                          <option value={x} key={x}>
-                            {t(x)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        key={k}
-                        list={
-                          k === "origin" || k === "destination"
-                            ? "filter-ride-locations"
-                            : undefined
-                        }
-                        aria-label={t(k)}
-                        placeholder={t(k)}
-                        type={
-                          k === "date" || k === "from" || k === "to"
-                            ? "date"
-                            : "text"
-                        }
-                        value={filters[k] || ""}
-                        onChange={(e) =>
-                          setFilters({ ...filters, [k]: e.target.value })
-                        }
-                      />
-                    );
-                  })}
-                  {page === "rides" && (
-                    <>
-                      <datalist id="filter-ride-locations">
-                        {rideLocations.map((location) => (
-                          <option key={location} value={location} />
-                        ))}
-                      </datalist>
-                      <select
-                        aria-label={t("sort")}
-                        value={filters.sort || "departure_asc"}
-                        onChange={(e) => {
-                          setCursor(null);
-                          setFilters({ ...filters, sort: e.target.value });
-                        }}
-                      >
-                        <option value="departure_asc">
-                          {t("departure_asc")}
-                        </option>
-                        <option value="departure_desc">
-                          {t("departure_desc")}
-                        </option>
-                      </select>
-                    </>
-                  )}
-                  <button>{t("search")}</button>
-                </form>
+                <HStack as="form" gap={3} wrap="wrap" vAlign="end" className="toolbar" style={admin ? {padding: "var(--lm-admin-filter-padding)", border: "var(--border-width) solid var(--color-border)", borderRadius: "var(--radius-container)", background: "var(--color-background-surface)"} : undefined}
+                  onSubmit={e => { e.preventDefault(); const invalid = e.currentTarget.querySelector<HTMLElement>('[aria-invalid="true"], :invalid'); if (invalid) { invalid.focus(); return; } run(() => load()); }}>
+                  <TextInput label={t("search")} placeholder={t("search")} value={query} onChange={setQuery} />
+                  {(admin || page === "profile") && <Selector label={t("status")} value={status}
+                    onChange={setStatus} options={(page === "contact" ? ["", "open", "resolved"]
+                      : page === "users" ? ["", "active", "banned"]
+                      : page === "reports" ? ["", "pending", "reviewed", "dismissed", "violation_confirmed"]
+                      : ["", "active", "deactivated", "reported", "deactivated_violation"])
+                      .map(value => ({ value, label: value ? t(value) : say("全部", "All") }))} />}
+                  {(admin ? page === "users" ? ["role", "banned"]
+                    : page === "reports" ? ["targetType", "reason", "targetId", "reporterId", "from", "to"]
+                    : page === "audit" ? ["action", "actorId", "resource", "resourceId", "from", "to"]
+                    : page === "items" ? ["category", "publisherId", "from", "to"]
+                    : page === "rides" ? ["origin", "destination", "publisherId", "date", "from", "to"]
+                    : ["conversations", "community-messages"].includes(page) ? ["from", "to"] : []
+                    : page === "items" ? ["category"] : page === "rides" ? ["origin", "destination", "date"] : [])
+                    .map(field => {
+                      const options = ({ category: itemFields.category, role: ["member", "admin"], banned: ["true", "false"], targetType: ["item", "ride", "user", "conversation"] } as Record<string, string[]>)[field];
+                      return options ? <Selector key={field} label={t(field)} value={filters[field] || ""}
+                        onChange={value => setFilters({ ...filters, [field]: value })}
+                        options={[{ value: "", label: say("全部", "All") }, ...options.map(value => ({ value, label: t(value) }))]} />
+                        : ["date", "from", "to"].includes(field) ? <DateInput key={field} label={t(field)}
+                          value={filters[field] || undefined} hasClear presentation="native"
+                          onChange={value => setFilters({ ...filters, [field]: value || "" })} />
+                        : ["origin", "destination"].includes(field) ? <RideLocationInput key={field} label={t(field)}
+                          value={filters[field] || ""} onChange={value => setFilters({ ...filters, [field]: value })} />
+                        : <TextInput key={field} label={t(field)} placeholder={t(field)}
+                          value={filters[field] || ""} onChange={value => setFilters({ ...filters, [field]: value })} />;
+                    })}
+                  {page === "rides" && <>
+                    <Selector label={t("sort")} value={filters.sort || "departure_asc"}
+                      options={["departure_asc", "departure_desc"].map(value => ({ value, label: t(value) }))}
+                      onChange={value => { setCursor(null); setFilters({ ...filters, sort: value }); }} />
+                  </>}
+                  <Button label={t("search")} type="submit" variant="primary" isLoading={busy} />
+                </HStack>
                 {admin && ["items", "rides"].includes(page) && (
-                  <button
+                  <Button width="fit-content" label={say("创建", "Create")}
                     onClick={() => {
                       setKind(page);
                       setDetail(null);
                       setEditing(true);
                     }}
-                  >
-                    {say("创建", "Create")}
-                  </button>
+                   />
                 )}
                 {admin && page === "users" && (
-                  <details>
-                    <summary>{say("创建用户", "Create user")}</summary>
+                  <Collapsible defaultIsOpen={false} trigger={say("创建用户", "Create user")}>
+
                     <DataForm
                       t={t}
                       say={say}
@@ -1041,19 +994,19 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                       }}
                       submit={(v) => write("/admin/users", "POST", v)}
                     />
-                  </details>
+                  </Collapsible>
                 )}
                 {admin && page === "community-messages" && (
-                  <section className="panel">
-                    <p>{say('发送身份','Sender')}: <strong>{officialSender?.name||say('未配置','Not configured')}</strong></p>
-                    <div className="toolbar">
-                      <input
-                        aria-label={say("搜索用户", "Search users")}
+                  <VStack gap={6} className="panel">
+                    <Text as="p">{say('发送身份','Sender')}: <Text type="label">{officialSender?.name||say('未配置','Not configured')}</Text></Text>
+                    <HStack gap={3} wrap="wrap" vAlign="center" className="toolbar">
+                      <TextInput
+                        label={say("搜索用户", "Search users")}
                         placeholder={say("搜索用户", "Search users")}
                         value={recipientQuery}
-                        onChange={(e) => setRecipientQuery(e.target.value)}
+                        onChange={setRecipientQuery}
                       />
-                      <button
+                      <Button label={t("search")}
                         onClick={() =>
                           run(async () => {
                             const result = await api(
@@ -1067,21 +1020,17 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                             );
                           })
                         }
-                      >
-                        {t("search")}
-                      </button>
-                    </div>
-                    <div className="actions">
+                       />
+                    </HStack>
+                    <HStack gap={3} wrap="wrap" vAlign="center" className="actions">
                       {recipientResults.map((r) => (
-                        <button key={r.id} onClick={() => setRecipient(r)}>
-                          {r.name} · {r.email}
-                        </button>
+                        <Button label={[r.name,"·",r.email].join(" ")} key={r.id} onClick={() => setRecipient(r)} />
                       ))}
-                    </div>
+                    </HStack>
                     {recipient && (
-                      <p>
+                      <Text as="p">
                         {recipient.name} · {recipient.email}
-                      </p>
+                      </Text>
                     )}
                     <DataForm
                       t={t}
@@ -1093,31 +1042,32 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                       fields={{ text: "textarea" }}
                       submit={(v) => {if(!recipient)throw new Error(say('请选择收件人','Select a recipient'));return write("/admin/community-messages", "POST", {...v,userId:recipient.id})}}
                     />
-                  </section>
+                  </VStack>
                 )}
-                {admin ? <ResourceList resource={page} rows={rows} onOpen={open} english={en} t={t} busy={busy}/> : <section className="grid">
+                {admin ? <ResourceList resource={page} rows={rows} onOpen={open} english={en} t={t} busy={busy}/> : <Grid columns={mobile ? (kind === "rides" ? 1 : 2) : desktop ? 3 : 2} gap={mobile ? 3 : 5} className="grid">
                   {rows.map((r) => (
                     <ListingCard key={r.id} row={r} kind={kind} english={en} t={t} onOpen={()=>open(r)}/>
 
                   ))}
-                </section>}
-                {!busy && !rows.length && <p>{t("empty")}</p>}
+                </Grid>}
+                {!busy && !rows.length && <Text as="p">{t("empty")}</Text>}
                 {cursor && (
-                  <button onClick={() => run(() => load(true))}>
-                    {say("加载更多", "Load more")}
-                  </button>
+                  <Button label={say("加载更多", "Load more")} onClick={() => run(() => load(true))} />
                 )}
               </>
             )}
           </>
         )}
-      </main>
+      </VStack>
     </Shell>
+    </InternationalizationProvider>
   );
-  function Report({ type, id }: { type: string; id: string }) {
+}
+
+function Report({ type, id, t, say, run, busy, kind }: { type: string; id: string } & Pick<ComponentProps<typeof DataForm>, "t" | "say" | "run" | "busy" | "kind">) {
     return (
-      <details>
-        <summary>{say("举报", "Report")}</summary>
+      <Collapsible defaultIsOpen={false} trigger={say("举报", "Report")}>
+
         <DataForm
           t={t}
           say={say}
@@ -1132,7 +1082,6 @@ export default function Client({ admin = false }: { admin?: boolean }) {
             api("/reports", "POST", { ...v, targetType: type, targetId: id })
           }
         />
-      </details>
+      </Collapsible>
     );
-  }
 }
