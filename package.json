@@ -10,7 +10,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "tsx --test --test-concurrency=1 tests/foundation.test.ts tests/test-database.test.ts tests/api.validation.test.ts packages/ui/src/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 tests/foundation.test.ts tests/test-database.test.ts tests/api.validation.test.ts packages/ui/src/*.test.ts apps/api/src/item-filters.test.ts",
     "typecheck": "tsc --noEmit && npm run typecheck --workspace=@loopmart/web && npm run typecheck --workspace=@loopmart/admin",
     "build": "npm run build:server && npm run build --workspace=@loopmart/web && npm run build --workspace=@loopmart/admin && node scripts/prepare-standalone.mjs",
     "auth": "node --env-file=.env dist/apps/auth/src/server.js",

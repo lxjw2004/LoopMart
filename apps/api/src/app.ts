@@ -1,5 +1,6 @@
 import {reviewReport} from './report-review.js';
 import {entityOrder,decodeEntityCursor,encodeEntityCursor} from './cursor.js';
+import { itemFilterClauses } from "./item-filters.js";
 import { additionalFilters } from "./filters.js";
 import { administrativeSnapshot } from "./audit.js";
 import { allowContact, allowWrite } from "./rate-limit.js";
@@ -250,9 +251,11 @@ function createHandler({
             args,
             "row_to_json(e)",
           );
+          const itemFilters =
+            kind === "item" ? itemFilterClauses(url.searchParams, args) : "";
           const filtered = (
             await pool.query(
-              `SELECT e.*,${timeColumn}::text cursor_time,u.name publisher_name FROM entities e JOIN "user" u ON u.id=e.publisher_id WHERE kind=$1 AND status<>'deleted' AND (status='active' OR $2 OR publisher_id=$3) AND ($3::text IS NULL OR publisher_id=$3) AND data::text ILIKE '%'||$4||'%' AND ($5::uuid IS NULL OR (${timeColumn},e.id) ${comparison} ($11::timestamptz,$5::uuid)) AND ($6::text IS NULL OR status=$6) AND ($7::text IS NULL OR data->>'category'=$7) AND ($8::text IS NULL OR data->>'origin' ILIKE '%'||$8||'%') AND ($9::text IS NULL OR data->>'destination' ILIKE '%'||$9||'%') AND ($10::text IS NULL OR CASE WHEN kind='ride' THEN ((data->>'departureTime')::timestamptz AT TIME ZONE (data->>'timeZone'))::date::text=$10 ELSE false END) ${extraEntity} ORDER BY ${timeColumn} ${direction},e.id ${direction} LIMIT 51`,
+              `SELECT e.*,${timeColumn}::text cursor_time,u.name publisher_name FROM entities e JOIN "user" u ON u.id=e.publisher_id WHERE kind=$1 AND status<>'deleted' AND (status='active' OR $2 OR publisher_id=$3) AND ($3::text IS NULL OR publisher_id=$3) AND data::text ILIKE '%'||$4||'%' AND ($5::uuid IS NULL OR (${timeColumn},e.id) ${comparison} ($11::timestamptz,$5::uuid)) AND ($6::text IS NULL OR status=$6) AND ($7::text IS NULL OR data->>'category'=$7) AND ($8::text IS NULL OR data->>'origin' ILIKE '%'||$8||'%') AND ($9::text IS NULL OR data->>'destination' ILIKE '%'||$9||'%') AND ($10::text IS NULL OR CASE WHEN kind='ride' THEN ((data->>'departureTime')::timestamptz AT TIME ZONE (data->>'timeZone'))::date::text=$10 ELSE false END) ${extraEntity}${itemFilters} ORDER BY ${timeColumn} ${direction},e.id ${direction} LIMIT 51`,
               args,
             )
           ).rows;

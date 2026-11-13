@@ -119,6 +119,46 @@ test(
         ).status,
         403,
       );
+      const filterTitle = "Attribute-" + crypto.randomUUID();
+      const fixture = async (publisher: string, data: any, status = "active") => {
+        const result = await pool.query(
+          "INSERT INTO entities(id,kind,publisher_id,data,status) VALUES(gen_random_uuid(),'item',$1,$2,$3) RETURNING id",
+          [publisher, { ...item, title: filterTitle, ...data }, status],
+        );
+        return result.rows[0].id;
+      };
+      const matching = [];
+      for (let i = 0; i < 52; i++)
+        matching.push(await fixture(i % 2 ? b.id : c.id, { priceCents: i === 0 ? 0 : 1200 }));
+      for (const data of [
+        { priceCents: 1201 }, { condition: "fair" },
+        { deliveryMethod: "delivery" }, { category: "electronics" },
+      ]) await fixture(b.id, data);
+      await fixture(b.id, {}, "deactivated");
+      const query = new URLSearchParams({ q: filterTitle, category: "furniture", minPriceCents: "0", maxPriceCents: "1200", condition: "good", deliveryMethod: "pickup" });
+      const filteredRows: any[] = [];
+      let nextCursor: string | null = null;
+      let pages = 0;
+      do {
+        if (nextCursor) query.set("cursor", nextCursor);
+        const page = await request("/items?" + query);
+        assert.equal(page.status, 200, JSON.stringify(page));
+        assert.equal(page.data.length, pages === 0 ? 50 : 2);
+        filteredRows.push(...page.data);
+        nextCursor = page.nextCursor;
+        assert.ok(++pages <= 2, "pagination must finish");
+      } while (nextCursor);
+      assert.equal(new Set(filteredRows.map((r) => r.id)).size, 52);
+      assert.deepEqual(new Set(filteredRows.map((r) => r.id)), new Set(matching));
+      assert.ok(filteredRows.every((r) => r.priceCents >= 0 && r.priceCents <= 1200 && r.condition === "good" && r.deliveryMethod === "pickup"));
+      assert.equal(new Set(filteredRows.map((r) => r.publisherId)).size, 2);
+      const expectedFiltered = (await pool.query("SELECT id FROM entities WHERE id=ANY($1::uuid[]) ORDER BY created_at DESC,id DESC", [matching])).rows.map((r) => r.id);
+      assert.deepEqual(filteredRows.map((r) => r.id), expectedFiltered);
+      const free = await request("/items?q=" + filterTitle + "&minPriceCents=0&maxPriceCents=0");
+      assert.deepEqual(free.data.map((r: any) => r.id), [matching[0]]);
+      for (const invalid of ["minPriceCents=-1", "maxPriceCents=1.1", "minPriceCents=2&maxPriceCents=1", "condition=broken", "deliveryMethod=ship"])
+        assert.equal((await request("/items?" + invalid)).status, 400, invalid);
+      assert.equal((await request("/rides?minPriceCents=-1&condition=broken")).status, 200);
       const first = await request(
         "/conversations",
         "POST",
