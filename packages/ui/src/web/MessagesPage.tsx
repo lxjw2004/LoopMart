@@ -4,7 +4,7 @@ import { api } from "../api";
 import { usd } from "../money";
 import { filterConversations, shouldSendOnEnter } from "../chat-composer";
 type Row = Record<string, any>;
-type Reference = {type: string; id: string};
+type Reference = {type:string;id:string;title?:string;origin?:string;destination?:string;priceCents?:number;feeCents?:number};
 export function ReferenceCard({reference, english, onOpen}: {reference: Reference; english: boolean; onOpen?: (type: string,id: string) => void}) {
   const [record, setRecord] = useState<Row | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -17,12 +17,12 @@ export function ReferenceCard({reference, english, onOpen}: {reference: Referenc
     return () => {active = false;};
   },[resource,reference.id]);
   const title = record?.title || (record?.origin ? `${record.origin} → ${record.destination}` : english ? "Referenced listing" : "引用内容");
-  if (unavailable) return <div className="reference-card reference-unavailable">{english ? "Listing unavailable" : "内容已不可用"}</div>;
+  if (unavailable) return <div className="reference-card reference-unavailable">{(reference.title||reference.origin)&&<strong>{reference.title||`${reference.origin} → ${reference.destination||""}`}</strong>}{Number.isSafeInteger(reference.priceCents??reference.feeCents)&&<span>{usd((reference.priceCents??reference.feeCents)!)}</span>}{english ? "Listing unavailable" : "内容已不可用"}</div>;
   if (!record || !resource) return <div className="reference-card" aria-busy="true">{english ? "Loading listing…" : "正在加载内容…"}</div>;
   return <a className="reference-card" href={`/${resource}/${encodeURIComponent(reference.id)}`} onClick={event => {if(onOpen && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {event.preventDefault();onOpen(resource,reference.id);}}}><strong>{title}</strong>{Number.isSafeInteger(record.priceCents ?? record.feeCents) && <span>{usd(record.priceCents ?? record.feeCents)}</span>}</a>;
 }
-export default function MessagesPage({rows, detail, messages, me, english, onOpen, onBack, onSend, reference, onClearReference, onProfile, report, onReferenceOpen}: {
-  rows: Row[]; detail: Row | null; messages: Row[]; me: Row | null; english: boolean;
+export default function MessagesPage({rows, detail, messages, me, english, onOpen, onBack, onSend, reference, onClearReference, onProfile, report, onReferenceOpen,connectionState}: {
+  connectionState?:"open"|"retrying"; rows: Row[]; detail: Row | null; messages: Row[]; me: Row | null; english: boolean;
   onOpen: (row: Row) => void; onBack: () => void; onSend: (text: string) => Promise<void>;
   reference?: Reference | null; onClearReference: () => void; onProfile: (id: string) => void; report?: ReactNode;
   onReferenceOpen?: (type: string,id: string) => void;
@@ -64,6 +64,7 @@ export default function MessagesPage({rows, detail, messages, me, english, onOpe
       {!filterConversations(rows,search).length && <p>{say("暂无会话","No conversations")}</p>}
     </section>
     <section className="chat-panel panel" aria-label={say("聊天","Chat")}>
+      {connectionState==='retrying'&&<p className="connection-status" role="status">{say('连接已断开，正在重连','Connection lost. Reconnecting')}</p>}
       {detail ? <>
         <header className="chat-header"><button className="chat-back" onClick={onBack}>{say("返回","Back")}</button><button onClick={() => detail.otherUser?.id && onProfile(detail.otherUser.id)}>{detail.otherUser?.name || say("用户","User")}</button>{report}</header>
         <div className="messages" ref={viewport} onScroll={() => {const node = viewport.current;if(node) {bottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 64;if(bottom.current) setNewMessages(false);}}}>

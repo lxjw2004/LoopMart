@@ -60,7 +60,7 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
         if ("text" in fields || "message" in fields) setValues({});
         if (key) { try { localStorage.removeItem(key); } catch { setNotice(say("草稿清除失败", "Draft could not be cleared")); } }
         setNotice(say("已保存", "Saved"));
-      } catch (failure) { setError(current => current || say("提交失败，请检查后重试", "Could not submit. Check and try again")); throw failure; }
+      } catch (failure) { if(failure instanceof Error&&failure.name==="AbortError")return;setError(current => current || say("提交失败，请检查后重试", "Could not submit. Check and try again")); throw failure; }
     }).catch(() => {}).finally(() => {lock.current = false; setSubmitting(false);});
   }}>
     <div className={renderSummary ? "publish-form" : undefined}>

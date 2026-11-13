@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import RideMeta from "./RideMeta";
+import ListingCard from "./web/ListingCard";
 import { errorText } from "./errors";
 type Row = Record<string, any>;
 function Posts({
@@ -56,17 +56,7 @@ function Posts({
       )}
       <div className="grid">
         {rows.map((row) => (
-          <button
-            className="card"
-            key={row.id}
-            onClick={() => onOpen(kind, row)}
-          >
-            <b>{row.title || row.origin + " → " + row.destination}</b>
-            {row.departureTime && row.timeZone && (
-              <RideMeta ride={row} english={english} />
-            )}
-            <span>${((row.priceCents ?? row.feeCents) / 100).toFixed(2)}</span>
-          </button>
+          <ListingCard key={row.id} row={row} kind={kind} english={english} t={t} onOpen={()=>onOpen(kind,row)}/>
         ))}
       </div>
       {!busy && !error && !rows.length && <p>{t("empty")}</p>}

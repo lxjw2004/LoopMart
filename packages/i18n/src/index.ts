@@ -1,4 +1,6 @@
 export const labels: Record<string, [string, string]> = {
+  currentPassword: ["当前密码", "Current password"],
+  newPassword: ["新密码", "New password"],
   items: ["市场", "Market"],
   rides: ["拼车", "Rides"],
   publish: ["发布", "Publish"],

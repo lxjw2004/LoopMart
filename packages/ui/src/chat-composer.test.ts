@@ -13,3 +13,8 @@ test('search matches names and last text, preserving conversation rows', () => {
   assert.deepEqual(filterConversations(rows,'book'), [rows[0]]);
   assert.deepEqual(filterConversations(rows,''), rows);
 });
+test('conversation search orders recent activity without mutating source rows',()=>{
+ const rows=[{id:'older',lastMessage:{text:'book',createdAt:'2026-01-01T00:00:00Z'}},{id:'recent',lastMessage:{text:'book',createdAt:'2026-11-01T00:00:00Z'}}];
+ assert.deepEqual(filterConversations(rows,'book').map(r=>r.id),['recent','older']);
+ assert.equal(rows[0].id,'older');
+});

@@ -106,6 +106,7 @@ def main():
         page.wait_for_timeout(150)
         page.remove_listener("request", listener)
         assert not writes, "Cancelling confirmation must not issue a write request"
+        clean(page)
         # Reopen the untouched server record to discard the cancelled form edit.
         navigate(page, "用户")
         search_open(page, TAG)
