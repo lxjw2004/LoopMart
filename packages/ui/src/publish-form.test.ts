@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formPayload, restoreDraft } from './DataForm';
+import { formPayload, restoreDraft } from './publish-form.js';
 test('publishing converts exact USD and checks seat bounds', () => {
   assert.equal(formPayload({ priceCents: '0.29' }).priceCents, 29);
   assert.equal(formPayload({ feeCents: '0', totalSeats: 2, availableSeats: 0 }).feeCents, 0);
