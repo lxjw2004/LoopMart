@@ -224,9 +224,12 @@ def main():
             recipient_search.fill(TAG.lower() + "@purdue.edu")
             recipient_search.locator("..").get_by_role("button", name="搜索", exact=True).click()
             page.get_by_role("button", name=TAG + " · " + TAG.lower() + "@purdue.edu", exact=True).click()
-            expect(page.get_by_label("用户 ID", exact=True)).to_have_value(recipient_id)
+            official_name = api_data(page, "/admin/users/" + changed_settings["communityAdminUserId"])["name"]
+            expect(page.get_by_text("发送身份: " + official_name, exact=True)).to_be_visible()
             page.get_by_label("消息", exact=True).fill("Official message " + TAG)
-            save(page)
+            page.get_by_role("button", name="保存", exact=True).click()
+            expect(page.get_by_role("dialog")).to_contain_text("发送身份: " + official_name + " · 收件人: " + TAG)
+            confirm(page)
             conversations = api_data(page, "/admin/community-messages?q=" + TAG)
             assert conversations, "Official conversation must exist"
             conversation = next(row for row in conversations if row.get("otherUser", {}).get("id") == recipient_id)
