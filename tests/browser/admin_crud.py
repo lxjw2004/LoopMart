@@ -146,6 +146,7 @@ def main():
 
         page.set_viewport_size({"width": 390, "height": 844})
         navigate(page, "用户")
+        expect(page.locator(".admin-record-cards article").first).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "Admin mobile overflow"
         Path(".superpowers/e2e").mkdir(parents=True, exist_ok=True)
         page.screenshot(path=".superpowers/e2e/admin-mobile.png", full_page=True)
