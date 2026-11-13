@@ -72,7 +72,7 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
       {renderSummary?.(values)}
       <div className={renderSummary ? "publish-actions" : undefined}>
         {draft && saveDraft && <button type="button" disabled={disabled || !key} onClick={() => {if(store(values)) setNotice(say("草稿已保存", "Draft saved"));}}>{say("保存草稿", "Save draft")}</button>}
-        <button type="submit" disabled={disabled}>{submitLabel || t("save")}</button>
+        <button className="form-submit" type="submit" disabled={disabled}>{submitLabel || t("save")}</button>
         {draft && <button type="button" disabled={disabled} onClick={() => {if(key) {try {localStorage.removeItem(key);} catch {setNotice(say("草稿清除失败", "Draft could not be cleared"));}} setValues(normalize(initial));}}>{say("丢弃草稿", "Discard draft")}</button>}
       </div>
     </aside>

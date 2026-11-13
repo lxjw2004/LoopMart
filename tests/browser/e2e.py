@@ -7,7 +7,7 @@ def nav(p,name):
  targets={'市场':'/items','拼车':'/rides','发布':'/publish','消息':'/messages','收藏':'/favorites','我的':'/account','联系':'/contact','隐私政策':'/privacy'}
  p.goto('http://localhost:3000'+targets[name],wait_until='networkidle')
 def login(p,u,port=3000):
- p.goto(f'http://localhost:{port}/login',wait_until='networkidle');p.get_by_label('邮箱',exact=True).fill(u['email']);p.get_by_label('密码',exact=True).fill(u['password']);p.get_by_role('button',name='保存',exact=True).click()
+ p.goto(f'http://localhost:{port}/login',wait_until='networkidle');p.get_by_label('邮箱',exact=True).fill(u['email']);p.get_by_label('密码',exact=True).fill(u['password']);p.locator('form button[type=submit]').click()
  if port==3000:expect(p.locator('header .account-link')).to_have_attribute('href','/account',timeout=15000)
  else:expect(p.locator('.admin-sidebar-user strong')).to_have_text(u.get('name','测试管理员'),timeout=15000)
 def fill(p,vals):

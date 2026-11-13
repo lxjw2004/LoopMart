@@ -96,6 +96,7 @@ export default function Client({ admin = false }: { admin?: boolean }) {
   function go(next: string) {
     loadSeq.current++;selectionSeq.current++;
     history.pushState(null, "", routeHref(next, admin));
+    if(next === "login") setMode("sign-in/email");
     setPage(next);setMessages([]);setReference(null);setRequestedEdit(false); setRows([]);setDetail(null); setEditing(false); setQuery("");setStatus("");setFilters({});setCursor(null);setError("");setNotice("");
     window.scrollTo(0,0); setRouteTick(v=>v+1);
   }
@@ -122,6 +123,11 @@ export default function Client({ admin = false }: { admin?: boolean }) {
     api("/me").then(setMe).catch(()=>setMe(null)).finally(()=>setSessionLoaded(true));
     return()=>window.removeEventListener('popstate',syncLocation);
   }, []);
+  useEffect(() => {
+    if (sessionLoaded && me && page === "login" && mode === "sign-in/email" && !new URLSearchParams(location.search).has("token")) {
+      go(admin ? "overview" : "items");
+    }
+  }, [sessionLoaded, me?.id, page, mode]);
   useEffect(()=>{readIds.current={};pendingMessages.current.clear();setFavoriteIds(new Set());listCache.current.clear();if(!me){setUnreadCount(0);return;}let active=true;api('/favorites').then(result=>{if(!active)return;const list=Array.isArray(result)?result:result.data||[];setFavoriteIds(new Set(list.map((r:Row)=>r.id)))}).catch(()=>{});return()=>{active=false}},[me?.id]);
   useEffect(()=>{if(!admin||page!=='community-messages')return;let active=true;setOfficialSender(null);api('/admin/settings').then(async settings=>settings.communityAdminUserId?api('/admin/users/'+settings.communityAdminUserId):null).then(row=>{if(active)setOfficialSender(row)}).catch(()=>{});return()=>{active=false}},[admin,page,refresh]);
   async function toggleFavorite(row:Row){
@@ -172,10 +178,11 @@ export default function Client({ admin = false }: { admin?: boolean }) {
     }
   }
   useEffect(() => {
+    if (!sessionLoaded || (admin && (!me || me.role !== "admin"))) return;
     if (["login", "publish", "user", "not-found"].includes(page)) return;
     if(restoring.current){restoring.current=false;return;}
     run(() => load());
-  }, [page, refresh, routeTick, page === "profile" ? kind : null]);
+  }, [page, refresh, routeTick, sessionLoaded, me?.id, me?.role, page === "profile" ? kind : null]);
   useEffect(() => {
     if(admin||!me)return;
     const events=new EventSource('/api/v1/events');events.addEventListener('open',()=>setChatConnection('open'));events.addEventListener('error',()=>setChatConnection('retrying'));let active=true;const selected=page==='conversations'?detail?.id:null;let updateSeq=0;
@@ -263,18 +270,17 @@ export default function Client({ admin = false }: { admin?: boolean }) {
         {notice && <p role="status">{notice}</p>}
         {busy && <p role="status">{t("loading")}</p>}
         {page === "not-found" ? <div className="empty-state">{say("页面不存在","Page not found")}<button onClick={()=>go(admin?"overview":"items")}>{t("back")}</button></div> : page === "login" ? (
-          <>
-            <div className="toolbar">
+          <section className="auth-page">
+            <div className="toolbar auth-modes">
               {[
                 "sign-in/email",
-                "sign-up/email",
+                ...(!admin ? ["sign-up/email"] : []),
                 "request-password-reset",
                 "reset-password",
                 "send-verification-email",
-                "change-email",
-                ...(me?["change-password"]:[]),
+                ...(me?["change-email", "change-password"]:[]),
               ].map((x) => (
-                <button key={x} onClick={() => setMode(x)}>
+                <button key={x} type="button" aria-pressed={mode === x} onClick={() => {setMode(x);setError("");setNotice("")}}>
                   {
                     (
                       {
@@ -298,6 +304,16 @@ export default function Client({ admin = false }: { admin?: boolean }) {
               ))}
             </div>
             <DataForm
+              key={mode}
+              submitLabel={({
+                "sign-in/email": say("登录", "Sign in"),
+                "sign-up/email": say("注册", "Register"),
+                "request-password-reset": say("发送重置邮件", "Send reset email"),
+                "reset-password": say("重设密码", "Reset password"),
+                "send-verification-email": say("重发验证邮件", "Resend verification"),
+                "change-email": say("修改邮箱", "Change email"),
+                "change-password": say("修改密码", "Change password"),
+              } as Row)[mode]}
               t={t}
               say={say}
               run={run}
@@ -315,6 +331,7 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                       : { email: "email", password: "password" }
               }
               submit={async (v) => {
+                const selection = selectionSeq.current;
                 await auth(
                   mode,
                   mode === "change-password" ? {...v,revokeOtherSessions:true} : mode === "reset-password"
@@ -332,24 +349,19 @@ export default function Client({ admin = false }: { admin?: boolean }) {
                           redirectTo: location.origin + "?reset=true",
                         },
                 );
-                api("/me")
-                  .then(setMe)
-                  .catch(() => {});
+                if (mode === "sign-in/email") {
+                  const user = await api("/me");
+                  setMe(user);
+                  if (selection === selectionSeq.current) go(admin ? "overview" : "items");
+                } else if (mode === "change-password" || mode === "change-email") {
+                  setMe(await api("/me"));
+                }
+                if (selection === selectionSeq.current && ["sign-up/email", "request-password-reset", "send-verification-email", "change-email"].includes(mode)) {
+                  setNotice(say("请求已提交，请检查邮箱", "Request submitted. Check your email"));
+                }
               }}
             />
-            {me && (
-              <button
-                onClick={() =>
-                  run(async () => {
-                    await auth("sign-out", {});
-                    setMe(null);
-                  })
-                }
-              >
-                {say("退出", "Sign out")}
-              </button>
-            )}
-          </>
+          </section>
         ) : !sessionLoaded ? (
           <p role="status">{t("loading")}</p>
         ) : admin && (!me || me.role !== "admin") ? (
