@@ -14,15 +14,16 @@ def navigate(page, name):
     expect(page.get_by_role("heading", level=1)).to_be_visible()
 
 
-def search_open(page, query):
+def search_open(page, query, *, open_name=None, has_form=True):
     page.get_by_role("textbox", name="搜索", exact=True).fill(query)
     with page.expect_response(lambda response: "/api/v1/admin/" in response.url and response.request.method == "GET" and "q=" in response.url):
         page.get_by_role("button", name="搜索", exact=True).click()
     # Desktop records expose an explicit open action rather than a clickable row.
     with page.expect_response(lambda response: "/api/v1/admin/" in response.url and response.request.method == "GET" and "q=" not in response.url):
-        page.get_by_role("table").get_by_role("button", name="查看 " + query, exact=True).click()
+        page.get_by_role("table").get_by_role("button", name="查看 " + (open_name or query), exact=True).click()
     expect(page.get_by_role("button", name="返回", exact=True)).to_be_visible()
-    expect(page.locator("form").first.get_by_role("button", name="保存", exact=True)).to_be_enabled()
+    if has_form:
+        expect(page.locator("form").first.get_by_role("button", name="保存", exact=True)).to_be_enabled()
 
 
 def confirm(page):
@@ -45,6 +46,22 @@ def confirm(page):
 def save(page, form=None):
     (form or page).get_by_role("button", name="保存", exact=True).click()
     confirm(page)
+
+
+def api_data(page, path, method="GET", data=None):
+    response = page.request.fetch(ADMIN_URL + "/api/v1" + path, method=method, data=data)
+    assert response.ok, f"Fixture/read {method} {path}: {response.status}"
+    result = response.json()
+    return result.get("data", result)
+
+
+def settings_fields(page, settings):
+    page.get_by_label("允许邮箱后缀（逗号分隔）", exact=True).fill(",".join(settings.get("allowedEmailDomains", [])))
+    page.get_by_label("允许所有邮箱", exact=True).select_option(str(settings.get("allowAllEmailDomains", False)).lower())
+    page.get_by_label("社区管理员 ID", exact=True).fill(settings.get("communityAdminUserId") or "")
+    page.get_by_label("中文隐私政策", exact=True).fill(settings.get("privacyPolicyZh") or "")
+    page.get_by_label("英文隐私政策", exact=True).fill(settings.get("privacyPolicyEn") or "")
+    page.get_by_label("开放联系表单", exact=True).select_option(str(settings.get("contactEnabled", False)).lower())
 
 
 def main():
@@ -70,6 +87,7 @@ def main():
         save(page, create_form)
         search_open(page, TAG)
         expect(page.get_by_label("角色", exact=True)).to_be_visible()
+        recipient_id = page.url.rstrip("/").split("/")[-1]
         password = page.get_by_label("密码", exact=True)
         password.fill("Changed-only-test-" + TAG + "!9")
         save(page, page.locator("form").filter(has=password))
@@ -143,6 +161,101 @@ def main():
         page.get_by_role("button", name="删除", exact=True).click()
         confirm(page)
         print("PASS admin item create/edit/delete")
+
+        navigate(page, "拼车")
+        page.get_by_role("button", name="创建", exact=True).click()
+        origin = "Campus " + TAG
+        fill(page, {"出发地": origin, "目的地": "Airport", "出发时间": "2026-12-15T09:30", "时区": "America/Indiana/Indianapolis", "费用（美元）": "5.25", "总座位": 3, "剩余座位": 2, "费用说明": "Shared fuel", "备注": "Meet at library"})
+        save(page)
+        search_open(page, TAG, open_name=origin + " → Airport")
+        expect(page.get_by_text("Meet at library", exact=True)).to_be_visible()
+        page.get_by_role("button", name="编辑", exact=True).click()
+        page.get_by_label("剩余座位", exact=True).fill("1")
+        page.get_by_label("备注", exact=True).fill("Updated pickup " + TAG)
+        save(page)
+        search_open(page, TAG, open_name=origin + " → Airport")
+        expect(page.get_by_text("Updated pickup " + TAG, exact=True)).to_be_visible()
+        page.get_by_role("button", name="删除", exact=True).click()
+        confirm(page)
+        print("PASS admin ride create/edit/delete")
+
+        # Fixture writes target only the isolated user created in this run.
+        report_ids = []
+        for index in range(2):
+            report = api_data(page, "/reports", "POST", {"targetType": "user", "targetId": recipient_id, "reason": "spam", "details": TAG + "-report-" + str(index)})
+            report_ids.append(report["id"])
+        for index, status in enumerate(("reviewed", "dismissed")):
+            navigate(page, "举报")
+            search_open(page, TAG + "-report-" + str(index), open_name=report_ids[index])
+            page.get_by_label("状态", exact=True).select_option(status)
+            page.get_by_label("审核说明", exact=True).fill(TAG + " " + status)
+            save(page)
+            expect(page.get_by_role("article").get_by_text(TAG + " " + status, exact=True)).to_be_visible()
+            assert api_data(page, "/admin/reports/" + report_ids[index])["status"] == status
+        print("PASS admin report reviewed/dismissed")
+
+        original_settings = api_data(page, "/admin/settings")
+        operator = api_data(page, "/me")
+        changed_settings = {**original_settings, "communityAdminUserId": original_settings.get("communityAdminUserId") or operator["id"], "contactEnabled": True, "privacyPolicyZh": "隐私 " + TAG, "privacyPolicyEn": "Privacy " + TAG}
+        try:
+            navigate(page, "设置")
+            expect(page.get_by_label("允许所有邮箱", exact=True)).to_be_visible()
+            for group in ("认证", "社区身份", "联系", "隐私"):
+                expect(page.get_by_role("group", name=group, exact=True)).to_be_visible()
+            settings_fields(page, changed_settings)
+            save(page)
+            current = api_data(page, "/admin/settings")
+            for key in ("privacyPolicyZh", "privacyPolicyEn", "contactEnabled", "communityAdminUserId"):
+                assert current[key] == changed_settings[key], key
+            print("PASS admin settings save")
+
+            contact = api_data(page, "/contact", "POST", {"email": TAG.lower() + "@purdue.edu", "subject": TAG + "-contact", "message": "Please review " + TAG})
+            navigate(page, "联系表单")
+            search_open(page, TAG + "-contact")
+            page.get_by_label("状态", exact=True).select_option("resolved")
+            page.get_by_label("审核说明", exact=True).fill("Resolved " + TAG)
+            save(page)
+            expect(page.get_by_role("article").get_by_text("Resolved " + TAG, exact=True)).to_be_visible()
+            assert api_data(page, "/admin/contact/" + contact["id"])["status"] == "resolved"
+            print("PASS admin contact resolution")
+
+            navigate(page, "社区消息")
+            recipient_search = page.get_by_role("textbox", name="搜索用户", exact=True)
+            recipient_search.fill(TAG.lower() + "@purdue.edu")
+            recipient_search.locator("..").get_by_role("button", name="搜索", exact=True).click()
+            page.get_by_role("button", name=TAG + " · " + TAG.lower() + "@purdue.edu", exact=True).click()
+            expect(page.get_by_label("用户 ID", exact=True)).to_have_value(recipient_id)
+            page.get_by_label("消息", exact=True).fill("Official message " + TAG)
+            save(page)
+            conversations = api_data(page, "/admin/community-messages?q=" + TAG)
+            assert conversations, "Official conversation must exist"
+            conversation = next(row for row in conversations if row.get("otherUser", {}).get("id") == recipient_id)
+            messages = api_data(page, "/admin/community-messages/" + conversation["id"] + "/messages")
+            sent = next(row for row in messages if row["text"] == "Official message " + TAG)
+            assert sent.get("senderId", sent.get("sender_id")) == changed_settings["communityAdminUserId"], "Official identity must be actual sender"
+            print("PASS admin configured community message identity/recipient")
+        finally:
+            # Restore exact prior shared settings even when a later assertion fails.
+            restored = api_data(page, "/admin/settings", "PATCH", {**original_settings, "reason": "Restore browser test settings " + TAG})
+            for key, value in original_settings.items():
+                assert restored.get(key) == value, "Settings restoration: " + key
+
+        navigate(page, "总览")
+        expect(page.get_by_role("heading", name="总览", exact=True)).to_be_visible()
+        counts = api_data(page, "/admin/overview")
+        for key in ("users", "items", "rides", "reports"):
+            assert int(counts[key]) >= 0
+        clean(page)
+        navigate(page, "审计日志")
+        audit_rows = api_data(page, "/admin/audit?q=" + TAG)
+        assert audit_rows, "Audited writes must create records"
+        audit = next(row for row in audit_rows if row.get("before_data") or row.get("beforeData"))
+        search_open(page, audit["id"], has_form=False)
+        expect(page.get_by_role("heading", name="变更前", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="变更后", exact=True)).to_be_visible()
+        assert "Only-test-" + TAG not in page.locator("main").inner_text()
+        assert "Changed-only-test-" + TAG not in page.locator("main").inner_text()
+        print("PASS admin overview/audit structured read")
 
         page.set_viewport_size({"width": 390, "height": 844})
         navigate(page, "用户")
