@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useLayoutEffect, useState, useRef, type ComponentProps } from "react";
 import DataForm from "./DataForm";
-import { parseRoute, legacyTarget, routeHref } from "./navigation";
+import { parseRoute, legacyTarget, routeHref, accountTabFromUrl, accountLocationKey, type AccountTab } from "./navigation";
 import WebShell from "./web/WebShell";
 import BrowsePage from "./web/BrowsePage";
+import AccountPage from "./web/AccountPage";
 import ListingDetail from "./web/ListingDetail";
 import ListingCard from "./web/ListingCard";
 import PublishPage from "./web/PublishPage";
@@ -65,6 +66,7 @@ const rideFields = {
 export default function Client({ admin = false, initialLocation = "/" }: { admin?: boolean; initialLocation?: string }) {
   const { mobile, desktop } = useLayout();
   const [initialRoute] = useState(() => parseRoute(new URL(initialLocation, "http://loopmart.local"), admin));
+  const [accountTab, setAccountTab] = useState(() => accountTabFromUrl(new URL(initialLocation, "http://loopmart.local")));
   const [routeId, setRouteId] = useState(initialRoute.id);
   const [routeLoading, setRouteLoading] = useState(!["login", "publish", "not-found"].includes(initialRoute.page));
   const [en, setEn] = useState(false),
@@ -84,7 +86,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
     [messages, setMessages] = useState<Row[]>([]),
     [refresh, setRefresh] = useState(0),
     [mode, setMode] = useState(initialRoute.query.has("token") ? "reset-password" : "sign-in/email"),
-    [filters, setFilters] = useState<Row>(Object.fromEntries([...initialRoute.query].filter(([key]) => !["q", "status", "kind", "cursor"].includes(key)))),
+    [filters, setFilters] = useState<Row>(Object.fromEntries([...initialRoute.query].filter(([key]) => !["q", "status", "kind", "cursor", "tab"].includes(key)))),
     [reference, setReference] = useState<Row | null>(null),
     [recipientQuery, setRecipientQuery] = useState(""),
     [recipientResults, setRecipientResults] = useState<Row[]>([]),
@@ -97,9 +99,15 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
   const [chatConnection,setChatConnection]=useState<"open"|"retrying">("open");
   const pendingRuns=useRef(0);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [favoriteRows, setFavoriteRows] = useState<Row[]>([]);
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [favoriteError, setFavoriteError] = useState<unknown>(null);
+  const favoriteLoadSeq = useRef(0);
+  const favoriteOwner = useRef<string | null>(null);
+  const accountLocation = useRef<string | null>(null);
   const [confirmation, setConfirmation] = useState<{summary:string;confirm:(reason:string)=>Promise<void>;cancel:()=>void}|null>(null);
   const [deleteAction, setDeleteAction] = useState<(() => Promise<void>) | null>(null);
-  const listCache = useRef(new Map<string, {rows:Row[];cursor:string|null;query:string;filters:Row;scroll:number}>());
+  const listCache = useRef(new Map<string, {rows:Row[];cursor:string|null;query:string;status:string;filters:Row;scroll:number}>());
   const restoring = useRef(false);
   const selectionSeq=useRef(0);
   const pendingScroll = useRef<{selection: number; top: number} | null>(null);
@@ -129,7 +137,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
   function go(next: string) {
     const target = routeHref(next, admin);
     const current = parseRoute(new URL(location.href), admin);
-    if (current.page === next && !current.id && !current.edit && !current.query.size && !editing) return;
+    if (current.page === next && !current.id && !current.edit && !current.query.size && !editing && (next !== "profile" || location.pathname === target)) return;
     history.pushState(null, "", target);
     if(next === "login") setMode("sign-in/email");
     syncLocation();
@@ -137,17 +145,23 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
   function syncLocation(seed?: Row, initial = false) {
     const legacy = legacyTarget(new URL(location.href), admin);
     if (legacy) history.replaceState(null, "", legacy);
-    const route = parseRoute(new URL(location.href), admin);
+    const url = new URL(location.href);
+    const route = parseRoute(url, admin);
+    const account = !admin && route.page === 'profile' && !route.id && !route.edit;
+    const key = account ? accountLocationKey(url) : null;
+    if (account && key === accountLocation.current) {setAccountTab(accountTabFromUrl(url));return;}
+    accountLocation.current = key;
+    if (account) setAccountTab(accountTabFromUrl(url));
     loadSeq.current++;selectionSeq.current++;pendingRuns.current=0;setBusy(false);
     setPage(route.page);setRouteId(route.id);setMessages([]);setReference(null);setRequestedEdit(Boolean(route.edit));setRows(seed && route.page === page ? rows : []); setEditing(Boolean(route.edit)); setDetail(seed || null);setError("");setNotice("");
     setQuery(route.query.get("q") || "");setStatus(route.query.get("status")||"");
-    const values=Object.fromEntries([...route.query].filter(([k])=>!["q","status","kind","cursor"].includes(k)));
+    const values=Object.fromEntries([...route.query].filter(([k])=>!["q","status","kind","cursor","tab"].includes(k)));
     setFilters(values);setCursor(null);
     if(route.page==='publish'||route.edit||route.page==='profile')setKind(route.page==='rides'?'rides':route.query.get('kind')==='rides'?'rides':'items');
     if(route.page==='login'&&route.query.has('token'))setMode('reset-password');
     const cache = !route.id && listCache.current.get(location.pathname+location.search);
     restoring.current=Boolean(cache);
-    if(cache){setRows(cache.rows);setCursor(cache.cursor);setQuery(cache.query);setFilters(cache.filters);}
+    if(cache){setRows(cache.rows);setCursor(cache.cursor);setQuery(cache.query);setStatus(cache.status);setFilters(cache.filters);}
     setRouteLoading(!cache && !["login", "publish", "not-found"].includes(route.page));
     pendingScroll.current={selection:selectionSeq.current,top:cache ? cache.scroll : initial ? window.scrollY : 0};
     setRouteTick(v=>v+1);
@@ -172,13 +186,37 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
       go(admin ? "overview" : "items");
     }
   }, [sessionLoaded, me?.id, page, mode]);
-  useEffect(()=>{readIds.current={};pendingMessages.current.clear();setFavoriteIds(new Set());listCache.current.clear();if(!me){setUnreadCount(0);return;}let active=true;api('/favorites').then(result=>{if(!active)return;const list=Array.isArray(result)?result:result.data||[];setFavoriteIds(new Set(list.map((r:Row)=>r.id)))}).catch(()=>{});return()=>{active=false}},[me?.id]);
+  async function loadFavorites() {
+    if (!me) return;
+    const seq = ++favoriteLoadSeq.current;
+    setFavoriteBusy(true);setFavoriteError(null);
+    try {
+      const result = await api('/favorites');
+      if (seq !== favoriteLoadSeq.current) return;
+      const list = Array.isArray(result) ? result : result.data || [];
+      setFavoriteRows(list);setFavoriteIds(new Set(list.map((row: Row) => row.id)));
+    } catch (failure) {if (seq === favoriteLoadSeq.current) setFavoriteError(failure);}
+    finally {if (seq === favoriteLoadSeq.current) setFavoriteBusy(false);}
+  }
+  useEffect(() => {
+    favoriteOwner.current=me?.id || null;
+    readIds.current={};pendingMessages.current.clear();setFavoriteIds(new Set());setFavoriteRows([]);setFavoriteError(null);listCache.current.clear();
+    if (!me) {setUnreadCount(0);setFavoriteBusy(false);return;}
+    void loadFavorites();
+    return () => {favoriteLoadSeq.current++;};
+  }, [me?.id]);
   useEffect(()=>{if(!admin||page!=='community-messages')return;let active=true;setOfficialSender(null);api('/admin/settings').then(async settings=>settings.communityAdminUserId?api('/admin/users/'+settings.communityAdminUserId):null).then(row=>{if(active)setOfficialSender(row)}).catch(()=>{});return()=>{active=false}},[admin,page,refresh]);
   async function toggleFavorite(row:Row){
     if(!me){go('login');return;}
+    const owner=me.id, refreshFavorites=favoriteBusy || Boolean(favoriteError);
     const saved=favoriteIds.has(row.id);
     await api('/favorites/'+row.id,saved?'DELETE':'PUT');
+    if (favoriteOwner.current!==owner) return;
+    // A completed mutation takes precedence over an older favorites read.
+    favoriteLoadSeq.current++;setFavoriteBusy(false);
     setFavoriteIds(old=>{const next=new Set(old);saved?next.delete(row.id):next.add(row.id);return next;});
+    setFavoriteRows(old=>saved?old.filter(item=>item.id!==row.id):[row,...old.filter(item=>item.id!==row.id)]);
+    if (refreshFavorites) void loadFavorites();
     listCache.current.clear();if(page==='favorites')setRefresh(v=>v+1);
   }
   async function load(append = false, override?: Row) {
@@ -269,12 +307,12 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
     document.addEventListener('visibilitychange',update);
     return()=>{active=false;events.close();document.removeEventListener('visibilitychange',update)};
   },[admin,page,me?.id,detail?.id]);
-  async function open(row:Row){
+  async function open(row:Row, resourceOverride?:string){
     if (!routeId) {
-      listCache.current.set(location.pathname+location.search,{rows,cursor,query,filters,scroll:window.scrollY});
+      listCache.current.set(location.pathname+location.search,{rows,cursor,query,status,filters,scroll:window.scrollY});
       previousList.current=location.pathname+location.search;
     }
-    const resource=page==='favorites'?'items':page==='profile'?kind:page;
+    const resource=resourceOverride||(page==='favorites'?'items':page==='profile'?kind:page);
     history.pushState(null,'',routeHref(resource,admin,row.id));syncLocation(row);
   }
   function backToList(){
@@ -313,6 +351,74 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
     syncLocation({...c,otherUser:{id:listing.publisherId,name:listing.publisherName}});
     setReference({type:listingKind,id:listing.id});
   }
+  const authForm = (authMode: string, embedded = false) => (
+    <DataForm
+      submitFullWidth embedded={embedded}
+      successMessage={embedded && authMode === 'change-email' ? say("请求已提交，请检查邮箱", "Request submitted. Check your email") : undefined}
+      key={authMode}
+      submitLabel={({
+        "sign-in/email": say("登录", "Sign in"),
+        "sign-up/email": say("注册", "Register"),
+        "request-password-reset": say("发送重置邮件", "Send reset email"),
+        "reset-password": say("重设密码", "Reset password"),
+        "send-verification-email": say("重发验证邮件", "Resend verification"),
+        "change-email": say("修改邮箱", "Change email"),
+        "change-password": say("修改密码", "Change password"),
+      } as Row)[authMode]}
+      t={t}
+      say={say}
+      run={run}
+      busy={busy}
+      kind={embedded ? authMode : kind}
+      fields={
+        authMode === "change-password" ? {currentPassword:"password",newPassword:"password"} : authMode === "reset-password"
+          ? { password: "password" }
+          : authMode === "request-password-reset" ||
+              authMode === "send-verification-email" ||
+              authMode === "change-email"
+            ? { email: "email" }
+            : authMode === "sign-up/email"
+              ? { name: "text", email: "email", password: "password" }
+              : { email: "email", password: "password" }
+      }
+      submit={async (v) => {
+        const selection = selectionSeq.current;
+        await auth(
+          authMode,
+          authMode === "change-password" ? {...v,revokeOtherSessions:true} : authMode === "reset-password"
+            ? {
+                newPassword: v.password,
+                token: new URLSearchParams(location.search).get(
+                  "token",
+                ),
+              }
+            : authMode === "change-email"
+              ? { newEmail: v.email, callbackURL: location.origin }
+              : {
+                  ...v,
+                  callbackURL: location.origin,
+                  redirectTo: location.origin + "?reset=true",
+                },
+        );
+        if (authMode === "sign-in/email") {
+          const user = await api("/me");
+          setMe(user);
+          if (selection === selectionSeq.current) go(admin ? "overview" : "items");
+        } else if (authMode === "change-password" || authMode === "change-email") {
+          setMe(await api("/me"));
+        }
+        if (!embedded && selection === selectionSeq.current && ["sign-up/email", "request-password-reset", "send-verification-email", "change-email"].includes(authMode)) {
+          setNotice(say("请求已提交，请检查邮箱", "Request submitted. Check your email"));
+        }
+      }}
+    />
+  );
+  function selectAccountTab(tab: AccountTab) {
+    if (accountTab === tab) return;
+    const url = new URL(location.href);url.searchParams.set('tab', tab);
+    history.pushState(null, '', url.pathname + url.search);
+    syncLocation();
+  }
   const stickyBrowseTitle=!admin&&desktop&&sessionLoaded&&!routeId&&!editing&&['items','rides'].includes(page);
   const Shell=admin?AdminShell:WebShell;
   const reportProps = {t, say, run, busy, kind};
@@ -327,7 +433,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
         actionLabel={say("删除", "Delete")} cancelLabel={say("取消", "Cancel")} isActionLoading={busy}
         onAction={() => run(async () => { await deleteAction?.(); setDeleteAction(null); })} />
       <VStack gap={6} width="100%" style={{position: "relative", minWidth: 0, flexGrow: admin ? undefined : 1, height: !admin && page === "conversations" && (routeId || detail) ? "var(--lm-chat-content-height)" : undefined}} className={admin?'admin-page-content':'web-page-content'}>
-        {!stickyBrowseTitle && !(!admin && mobile && page === "conversations" && (routeId || detail)) && <Heading level={1} style={admin && page === "login" ? {maxWidth:"var(--lm-auth-width)",width:"100%",marginInline:"auto",marginBlockStart:"5vh"} : !admin && page === "conversations" && (routeId || detail) ? {display:"var(--lm-chat-heading-display)"} : undefined}>{admin?({items:say('商品','Items'),conversations:say('会话','Conversations'),contact:say('联系表单','Contact'),audit:say('审计日志','Audit log')} as Row)[page]||t(page):t(page)}</Heading>}
+        {!stickyBrowseTitle && !(!admin && mobile && page === "conversations" && (routeId || detail)) && <Heading level={1} style={admin && page === "login" ? {maxWidth:"var(--lm-auth-width)",width:"100%",marginInline:"auto",marginBlockStart:"5vh"} : !admin && page === "conversations" && (routeId || detail) ? {display:"var(--lm-chat-heading-display)"} : undefined}>{admin?({items:say('商品','Items'),conversations:say('会话','Conversations'),contact:say('联系表单','Contact'),audit:say('审计日志','Audit log')} as Row)[page]||t(page):page === "profile" ? say("我的发布", "My posts") : t(page)}</Heading>}
         {me?.banned && <Banner status="error" title={say("账号已封禁", "Account suspended")} role="alert" />}
         {me && !me.emailVerified && (
           <Banner status="warning" title={say("请验证邮箱以继续", "Verify your email to continue")}
@@ -344,8 +450,8 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
         )}
         {Boolean(error) && (
           <Banner status="error" title={errorText(error, en)} role="alert"
-            endContent={!["login", "publish"].includes(page) && !editing && (
-              <Button label={say("重试", "Retry")} onClick={() => setRefresh((x) => x + 1)} />
+            endContent={!["login", "publish"].includes(page) && !editing && !(page === "profile" && ['profile', 'change-password'].includes(accountTab)) && (
+              <Button label={say("重试", "Retry")} onClick={() => !admin && page === "profile" && accountTab === 'favorites' ? run(() => loadFavorites()) : setRefresh((x) => x + 1)} />
             )} />
         )}
         {notice && <Banner status="success" title={notice} role="status" />}
@@ -403,65 +509,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
                 </ToggleButton>
               ))}
             </HStack>
-            <DataForm
-              submitFullWidth
-              key={mode}
-              submitLabel={({
-                "sign-in/email": say("登录", "Sign in"),
-                "sign-up/email": say("注册", "Register"),
-                "request-password-reset": say("发送重置邮件", "Send reset email"),
-                "reset-password": say("重设密码", "Reset password"),
-                "send-verification-email": say("重发验证邮件", "Resend verification"),
-                "change-email": say("修改邮箱", "Change email"),
-                "change-password": say("修改密码", "Change password"),
-              } as Row)[mode]}
-              t={t}
-              say={say}
-              run={run}
-              busy={busy}
-              kind={kind}
-              fields={
-                mode === "change-password" ? {currentPassword:"password",newPassword:"password"} : mode === "reset-password"
-                  ? { password: "password" }
-                  : mode === "request-password-reset" ||
-                      mode === "send-verification-email" ||
-                      mode === "change-email"
-                    ? { email: "email" }
-                    : mode === "sign-up/email"
-                      ? { name: "text", email: "email", password: "password" }
-                      : { email: "email", password: "password" }
-              }
-              submit={async (v) => {
-                const selection = selectionSeq.current;
-                await auth(
-                  mode,
-                  mode === "change-password" ? {...v,revokeOtherSessions:true} : mode === "reset-password"
-                    ? {
-                        newPassword: v.password,
-                        token: new URLSearchParams(location.search).get(
-                          "token",
-                        ),
-                      }
-                    : mode === "change-email"
-                      ? { newEmail: v.email, callbackURL: location.origin }
-                      : {
-                          ...v,
-                          callbackURL: location.origin,
-                          redirectTo: location.origin + "?reset=true",
-                        },
-                );
-                if (mode === "sign-in/email") {
-                  const user = await api("/me");
-                  setMe(user);
-                  if (selection === selectionSeq.current) go(admin ? "overview" : "items");
-                } else if (mode === "change-password" || mode === "change-email") {
-                  setMe(await api("/me"));
-                }
-                if (selection === selectionSeq.current && ["sign-up/email", "request-password-reset", "send-verification-email", "change-email"].includes(mode)) {
-                  setNotice(say("请求已提交，请检查邮箱", "Request submitted. Check your email"));
-                }
-              }}
-            />
+            {authForm(mode)}
           </VStack>
         ) : !sessionLoaded ? (
           <Text as="p" role="status">{t("loading")}</Text>
@@ -478,7 +526,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
           <VStack gap={4} className="panel">
             <Button label={t("login")} onClick={() => go("login")} />
           </VStack>
-        ) : (routeId && !detail) || (routeLoading && !detail && !["items", "rides", "favorites", "conversations"].includes(page)) ? (
+        ) : (routeId && !detail) || (routeLoading && !detail && !["items", "rides", "favorites", "conversations", "profile"].includes(page)) ? (
           error ? <EmptyState headingLevel={2} title={say("内容不可用", "Content unavailable")} /> :
           <VStack className="route-loading" aria-busy="true" gap={5} minHeight="60vh">
             <Skeleton height="calc(var(--spacing-12) * 4)" />
@@ -621,6 +669,30 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
           actions={<>{detail.publisherId===me?.id?<><Button label={say('编辑','Edit')} onClick={()=>{setKind(page==='rides'?'rides':'items');setEditing(true);history.pushState(null,'',routeHref(page==='rides'?'rides':'items',false,detail.id)+'/edit')}} /><Button label={detail.status==='active'?say('下架','Deactivate'):say('上架','Activate')} className="secondary" onClick={()=>run(()=>write('/'+(page==='rides'?'rides':'items')+'/'+detail.id,'PATCH',{status:detail.status==='active'?'deactivated':'active'}))} isDisabled={!['active','deactivated'].includes(detail.status)} /><Button label={say('删除','Delete')} className="text-button danger" variant="destructive" onClick={()=>{const path="/"+(page==="rides"?"rides":"items")+"/"+detail.id;setDeleteAction(()=>async()=>{await write(path,"DELETE",{});})}} /></>:<Button variant="primary" label={say(page==='rides'?'联系车主':'联系卖家',page==='rides'?'Contact driver':'Contact seller')} className="listing-contact" width={mobile ? "calc(100% - var(--lm-page-gutter) * 2)" : "100%"} style={mobile ? {position:"fixed",insetInline:"var(--lm-page-gutter)",bottom:"calc(var(--lm-mobile-nav-height) + var(--spacing-2) + env(safe-area-inset-bottom))",zIndex:19} : undefined} onClick={()=>run(contactListing)} isDisabled={detail.status!=='active'} />}{page!=='rides'&&<Button label={favoriteIds.has(detail.id)?say('取消收藏','Remove favorite'):say('收藏','Save item')} className="secondary" onClick={()=>run(()=>toggleFavorite(detail))} />}</>}/>
         ) : !admin && !detail && ['items','rides','favorites'].includes(page) ? (
           <BrowsePage simple={page==='favorites'} kind={page==='rides'?'rides':'items'} rows={rows} query={query} filters={filters} cursor={cursor} busy={busy} english={en} t={t} onApply={applyBrowse} onMore={()=>run(()=>load(true))} onOpen={open} onFavorite={(row)=>run(()=>toggleFavorite(row))} favorites={favoriteIds}/>
+        ) : !admin && page === "profile" && !detail && me ? (
+          <AccountPage selected={accountTab} onTabChange={selectAccountTab} me={me} english={en} t={t} kind={kind} rows={rows} query={query} status={status} cursor={cursor} busy={busy}
+            profileForm={<DataForm embedded t={t} say={say} run={run} busy={busy} kind="account-profile" initial={{name: me.name}} fields={{name: "text"}}
+              submit={async values => {await api("/me", "PATCH", values);setMe(await api("/me"));}} />}
+            emailForm={authForm('change-email', true)} passwordForm={authForm('change-password', true)}
+            favoriteRows={favoriteRows} favoriteBusy={favoriteBusy} favoriteError={favoriteError} favoriteIds={favoriteIds}
+            onFavoritesRetry={() => void loadFavorites()} onFavorite={row => run(() => toggleFavorite(row))} onFavoriteOpen={row => open(row, 'items')}
+            onLogout={() => run(async () => {await auth('sign-out', {});setMe(null);go('login');})}
+            onContactAdmin={() => run(async () => {
+              const selection = selectionSeq.current;
+              const settings = await api("/public/settings");
+              if (!settings.communityAdminUserId) throw new Error(say("未设置社区管理员", "Community administrator unavailable"));
+              const [c, otherUser] = await Promise.all([
+                api("/conversations", "POST", {otherUserId: settings.communityAdminUserId}),
+                api("/profiles/" + settings.communityAdminUserId),
+              ]);
+              if (selection !== selectionSeq.current) return;
+              history.pushState(null, '', routeHref('conversations', false, c.id));
+              syncLocation({...c, otherUser});
+            })}
+            onKindChange={next => {if (kind === next) return;history.replaceState(null, '', '/account/listings?kind=' + next);syncLocation(undefined, true);}}
+            onQueryChange={setQuery} onStatusChange={setStatus} onSearch={() => run(() => load())}
+            onMore={() => run(() => load(true))} onOpen={open}
+            onPublish={() => {history.pushState(null, '', '/publish?kind=' + kind);syncLocation();}} />
         ) : detail &&
           page !== "overview" &&
           !(page === "profile" && !detail.id) ? (
@@ -862,66 +934,6 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
           </VStack></Section>
         ) : (
           <>
-            {page === "profile" && (
-              <>
-                <HStack gap={3} wrap="wrap" vAlign="center" className="actions"><Button label={say('收藏','Saved items')} className="secondary" onClick={()=>go('favorites')} /><Button label={say('修改邮箱','Change email')} className="secondary" onClick={()=>{go('login');setMode('change-email')}} /><Button label={say('修改密码','Change password')} className="secondary" onClick={()=>{go('login');setMode('change-password')}} /><Button variant="ghost" label={say('退出','Sign out')} className="text-button" onClick={()=>run(async()=>{await auth('sign-out',{});setMe(null);go('login')})} /></HStack>
-                <Button label={say("联系社区管理员", "Contact community administrator")}
-                  onClick={() =>
-                    run(async () => {
-                      const selection = selectionSeq.current;
-                      const settings = await api("/public/settings");
-                      if (!settings.communityAdminUserId)
-                        throw new Error(
-                          say(
-                            "未设置社区管理员",
-                            "Community administrator unavailable",
-                          ),
-                        );
-                      const [c, otherUser] = await Promise.all([
-                        api("/conversations", "POST", {otherUserId: settings.communityAdminUserId}),
-                        api("/profiles/" + settings.communityAdminUserId),
-                      ]);
-                      if (selection !== selectionSeq.current) return;
-                      history.pushState(null,'',routeHref('conversations',false,c.id));
-                      syncLocation({...c, otherUser});
-                    })
-                  }
-                 />
-                <DataForm
-                  t={t}
-                  say={say}
-                  run={run}
-                  busy={busy}
-                  kind={kind}
-                  initial={me || {}}
-                  fields={{ name: "text" }}
-                  submit={async (v) => {
-                    await api("/me", "PATCH", v);
-                    setMe(await api("/me"));
-                  }}
-                />
-                <HStack gap={3} wrap="wrap" vAlign="center" className="actions">
-                  <ToggleButton label={t("items")}
-                    isPressed={kind === "items"}
-                    onPressedChange={() => {
-                      if (kind === "items") return;
-                      history.replaceState(null,'','/account/listings?kind=items');syncLocation(undefined,true);
-                    }}
-                  >
-                    {t("items")}
-                  </ToggleButton>
-                  <ToggleButton label={t("rides")}
-                    isPressed={kind === "rides"}
-                    onPressedChange={() => {
-                      if (kind === "rides") return;
-                      history.replaceState(null,'','/account/listings?kind=rides');syncLocation(undefined,true);
-                    }}
-                  >
-                    {t("rides")}
-                  </ToggleButton>
-                </HStack>
-              </>
-            )}
             {page === "overview" ? (
               <Grid columns={{minWidth: 240, max: 4}} gap={5} className="grid admin-metrics">
                 {Object.entries(detail || {}).map(([k, v]) => (

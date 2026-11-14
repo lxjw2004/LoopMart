@@ -20,12 +20,12 @@ type Row = Record<string, any>;
 type Fields = Record<string, string | string[]>;
 const money = (name: string) => name === "priceCents" || name === "feeCents";
 const normalize = (data: Row) => Object.fromEntries(Object.entries(data).map(([k, v]) => [k, money(k) && v !== undefined && v !== null ? centsToDollars(Number(v)) : v]));
-export default function DataForm({fields, initial = {}, submit, draft = false, t, say, run, busy, kind, ownerId, submitLabel, groups, renderSummary, saveDraft = false, submitFullWidth = false}: {
+export default function DataForm({fields, initial = {}, submit, draft = false, t, say, run, busy, kind, ownerId, submitLabel, groups, renderSummary, saveDraft = false, submitFullWidth = false, embedded = false, successMessage}: {
   fields: Fields; initial?: Row; submit: (v: Row) => Promise<any>; draft?: boolean;
   t: (s: string) => string; say: (zh: string, en: string) => string;
   run: (f: () => Promise<any>) => Promise<any>; busy: boolean; kind: string; ownerId?: string;
   submitLabel?: string; groups?: {title: string; fields: string[]}[];
-  renderSummary?: (values: Row) => ReactNode; saveDraft?: boolean; submitFullWidth?: boolean;
+  renderSummary?: (values: Row) => ReactNode; saveDraft?: boolean; submitFullWidth?: boolean; embedded?: boolean; successMessage?: string;
 }) {
   const { mobile } = useLayout();
   const [notice, setNotice] = useState("");
@@ -99,7 +99,7 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
         await submit(payload);
         if ("text" in fields || "message" in fields) setValues({});
         if (key) { try { localStorage.removeItem(key); } catch { setNotice(say("草稿清除失败", "Draft could not be cleared")); } }
-        setNotice(say("已保存", "Saved"));
+        setNotice(successMessage || say("已保存", "Saved"));
       } catch (failure) { if(failure instanceof Error&&failure.name==="AbortError")return;setError(current => current || say("提交失败，请检查后重试", "Could not submit. Check and try again")); throw failure; }
     }).catch(() => {}).finally(() => {lock.current = false; setSubmitting(false);});
   }}>
@@ -126,5 +126,5 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
       </VStack>
     </Grid>
   </VStack>;
-  return renderSummary ? form : <Section variant="form-panel" width="100%" maxWidth="var(--lm-form-max)">{form}</Section>;
+  return renderSummary || embedded ? form : <Section variant="form-panel" width="100%" maxWidth="var(--lm-form-max)">{form}</Section>;
 }

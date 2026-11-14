@@ -1,4 +1,14 @@
 export type UiRoute={area:'web'|'admin';page:string;id?:string;edit?:boolean;query:URLSearchParams};
+export type AccountTab='profile'|'posts'|'favorites'|'change-password';
+export function accountTabFromUrl(url:URL):AccountTab{
+ const tab=url.searchParams.get('tab');
+ if(tab==='change-email')return 'profile';
+ return tab&&['profile','posts','favorites','change-password'].includes(tab)?tab as AccountTab:url.pathname.endsWith('/listings')?'posts':'profile';
+}
+export function accountLocationKey(url:URL){
+ const query=new URLSearchParams(url.search);query.delete('tab');query.sort();
+ return url.pathname+'?'+query;
+}
 const aliases:Record<string,string>={messages:'conversations',account:'profile','auth-settings':'settings','community-admin':'settings','privacy-policy':'settings','contact-form':'contact',profiles:'user'};
 const webPages=new Set(['items','rides','publish','conversations','favorites','profile','user','login','privacy','contact']);
 const adminPages=new Set(['overview','users','items','rides','conversations','reports','community-messages','contact','settings','audit','login']);
