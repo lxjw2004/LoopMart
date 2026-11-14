@@ -58,7 +58,7 @@ export default function PublishPage({kind, id, ownerId, t, say, run, busy, initi
         <Heading level={2} style={{fontSize:"calc(var(--spacing-4) + var(--border-width))"}}>{say("发布预览","Preview")}</Heading>
         <Heading level={3} style={{fontSize:"calc(var(--spacing-6) - var(--border-width))"}}>{ride ? `${values.origin || "—"} → ${values.destination || "—"}` : values.title || t("items")}</Heading>
         {repeated && <CheckboxInput label={`${say("确认出发时间偏移", "Confirm departure offset")} ${offset}`} value={confirmedDeparture===departureKey(values)} onChange={checked=>setConfirmedDeparture(checked?departureKey(values):"")} isRequired/>}
-        <Text weight="bold" hasTabularNumbers style={{fontSize:"calc(var(--spacing-8) - var(--spacing-0-5))"}}>USD {String(values[ride ? "feeCents" : "priceCents"] || "0")}</Text>
+        <Text color="accent" weight="bold" hasTabularNumbers style={{fontSize:"var(--lm-price-card)"}}>USD {String(values[ride ? "feeCents" : "priceCents"] || "0")}</Text>
         {ride ? <>{departure && <Text>{departure}</Text>}{values.timeZone && <Text type="supporting">{values.timeZone}</Text>}{values.availableSeats !== undefined && <Text>{t("availableSeats")}: {values.availableSeats}</Text>}</> : <>{values.condition && <Text>{t(values.condition)}</Text>}{values.deliveryMethod && <Text>{t(values.deliveryMethod)}</Text>}</>}
       </VStack>;
     }} />;

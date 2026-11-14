@@ -32,7 +32,7 @@ npm run build
 
 ## 源码结构
 
-用户 Web 和管理后台统一使用 Astryx 0.7.15 组件，共享入口是 `packages/ui/src/DesignSystem.tsx`。`src/themes/foundation.ts` 集中定义组件规则，用户端蓝色主题与后台灰绿主题保留原有设计语言。运行 `npm run theme:build` 编译主题，`npm run theme:check` 检查生成文件是否同步；完整构建会自动编译主题。`npm test` 检查组件覆盖和主题边界。
+用户 Web 和管理后台统一使用 Astryx 0.7.15 组件，共享入口是 `packages/ui/src/DesignSystem.tsx`。`src/themes/foundation.ts` 集中定义橙白「校园交换站」主题与组件规则；市场使用全宽商品网格与横向分类，拼车使用单列宽行程卡，后台保留紧凑表格。设计 token、响应布局和组件状态见 [DESIGN.md](DESIGN.md)。运行 `npm run theme:build` 编译主题，`npm run theme:check` 检查生成文件是否同步；完整构建会自动编译主题。`npm test` 检查组件覆盖和主题边界。
 
 ```text
 apps/web          用户 Web（Next.js）

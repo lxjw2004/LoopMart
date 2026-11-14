@@ -17,36 +17,49 @@ export const loopmartAdminTheme = {
   name: 'loopmart-admin',
   __built: true,
   tokens: {
-    "--color-accent": "#3d6058",
-    "--color-accent-muted": "#edf2ed",
+    "--color-accent": "#cf3f23",
+    "--color-accent-muted": "#fff0e9",
     "--color-on-accent": "#ffffff",
-    "--color-neutral": "#edf2ed",
-    "--color-background-body": "#f7f8f5",
+    "--color-neutral": "#fff0e9",
+    "--color-background-body": "#f8f8f6",
     "--color-background-surface": "#ffffff",
     "--color-background-card": "#ffffff",
     "--color-background-popover": "#ffffff",
-    "--color-background-muted": "#f5f7f0",
-    "--color-text-primary": "#29332f",
-    "--color-text-secondary": "#747b76",
-    "--color-text-accent": "#3d6058",
-    "--color-text-disabled": "#94a0b2",
-    "--color-icon-primary": "#29332f",
-    "--color-icon-secondary": "#747b76",
-    "--color-icon-accent": "#3d6058",
-    "--color-border": "#e3e6e1",
-    "--color-border-emphasized": "#dce2d7",
-    "--color-error": "#a3483d",
+    "--color-background-muted": "#f0f2ed",
+    "--color-text-primary": "#252b28",
+    "--color-text-secondary": "#626d65",
+    "--color-text-accent": "#b9351d",
+    "--color-text-disabled": "#929a94",
+    "--color-icon-primary": "#252b28",
+    "--color-icon-secondary": "#626d65",
+    "--color-icon-accent": "#cf3f23",
+    "--color-border": "#e2e6df",
+    "--color-border-emphasized": "#c5cdc3",
+    "--color-error": "#b42318",
     "--color-on-error": "#ffffff",
-    "--color-text-error": "#a3483d",
-    "--color-error-muted": "#fbefeb",
-    "--color-on-error-muted": "#a3483d",
+    "--color-text-error": "#b42318",
+    "--color-error-muted": "#fff1f0",
+    "--color-on-error-muted": "#b42318",
     "--color-icon-error": "#b42318",
     "--color-success": "#137547",
     "--color-text-success": "#137547",
     "--color-icon-success": "#137547",
-    "--color-overlay": "#23312255",
-    "--color-overlay-hover": "#17243b08",
-    "--color-overlay-pressed": "#17243b12",
+    "--color-success-muted": "#edf7ef",
+    "--color-on-success": "#ffffff",
+    "--color-on-success-muted": "#137547",
+    "--color-info": "#cf3f23",
+    "--color-text-info": "#b9351d",
+    "--color-icon-info": "#cf3f23",
+    "--color-info-muted": "#fff0e9",
+    "--color-on-info": "#ffffff",
+    "--color-on-info-muted": "#b9351d",
+    "--color-background-inverted": "#252b28",
+    "--color-skeleton": "#c5cdc3",
+    "--color-track": "#c5cdc3",
+    "--color-shadow": "#252b2814",
+    "--color-overlay": "#252b2870",
+    "--color-overlay-hover": "#252b2808",
+    "--color-overlay-pressed": "#252b2812",
     "--font-family-body": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
     "--font-family-heading": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
     "--font-family-code": "\"SFMono-Regular\", Consolas, monospace",
@@ -73,12 +86,12 @@ export const loopmartAdminTheme = {
     "--size-element-md": "36px",
     "--size-element-lg": "44px",
     "--radius-inner": "4px",
-    "--radius-element": "6px",
-    "--radius-container": "9px",
-    "--radius-page": "12px",
-    "--radius-chat": "12px",
+    "--radius-element": "8px",
+    "--radius-container": "12px",
+    "--radius-page": "14px",
+    "--radius-chat": "14px",
     "--focus-outline-width": "2px",
-    "--focus-outline-color": "#8fa99c",
+    "--focus-outline-color": "#cf3f23",
     "--focus-outline-offset": "3px"
   },
   localTokens: {
@@ -95,6 +108,8 @@ export const loopmartAdminTheme = {
     "--lm-mobile-display": "none",
     "--lm-nonmobile-display": "flex",
     "--lm-wide-display": "none",
+    "--lm-header-inline-search-display": "flex",
+    "--lm-header-stacked-search-display": "none",
     "--lm-header-brand-size": "27px",
     "--lm-header-actions-gap": "20px",
     "--lm-header-search-gap": "20px",
@@ -103,28 +118,35 @@ export const loopmartAdminTheme = {
     "--lm-subnav-padding": "20px",
     "--lm-account-max-width": "120px",
     "--lm-page-bottom": "40px",
-    "--lm-page-header-height": "140px",
+    "--lm-page-header-height": "72px",
     "--lm-chat-page-inset": "1",
     "--lm-chat-page-max": "1440px",
     "--lm-chat-page-min-height": "calc(100dvh - var(--lm-page-header-height))",
     "--lm-chat-content-height": "auto",
     "--lm-chat-heading-display": "block",
+    "--lm-brand-mark-size": "26px",
+    "--lm-media-empty-height": "160px",
+    "--lm-catalog-columns": "3",
+    "--lm-ride-direction": "row",
+    "--lm-ride-rail-width": "160px",
+    "--lm-ride-rail-direction": "column",
+    "--lm-ride-icon-display": "flex",
     "--lm-card-title-size": "16px",
     "--lm-card-body-padding": "18px",
     "--lm-price-card": "24px",
     "--lm-price-card-mobile": "22px",
     "--lm-price-detail": "40px",
     "--lm-publisher-size": "12px",
-    "--lm-media-background": "#edf0f5",
-    "--lm-chat-background": "#fafbfd",
+    "--lm-media-background": "#f0f2ed",
+    "--lm-chat-background": "#f8f8f6",
     "--lm-chat-sidebar-width": "300px",
     "--lm-chat-chrome-height": "260px",
-    "--lm-accent-hover": "#304e47",
+    "--lm-accent-hover": "#b9351d",
     "--lm-control-font": "13px",
-    "--lm-control-border": "#dce2d7",
+    "--lm-control-border": "#c5cdc3",
     "--lm-control-height": "38px",
     "--lm-control-padding-inline": "12px",
-    "--lm-label-color": "#576052",
+    "--lm-label-color": "#626d65",
     "--lm-button-padding": "7px 12px",
     "--lm-button-weight": "500",
     "--lm-form-max": "760px",
@@ -145,11 +167,11 @@ export const loopmartAdminTheme = {
     "--lm-admin-detail-padding": "28px",
     "--lm-admin-record-label-width": "100px",
     "--lm-admin-audit-height": "500px",
-    "--lm-admin-nav-background": "#fdfefb",
-    "--lm-admin-nav-text": "#70796f",
-    "--lm-admin-nav-selected": "#eaf0e7",
-    "--lm-admin-nav-selected-text": "#355446",
-    "--lm-admin-subtle": "#8a9383"
+    "--lm-admin-nav-background": "#ffffff",
+    "--lm-admin-nav-text": "#626d65",
+    "--lm-admin-nav-selected": "#fff0e9",
+    "--lm-admin-nav-selected-text": "#b9351d",
+    "--lm-admin-subtle": "#626d65"
   },
   __localTokenOwners: {
     "--lm-mobile-breakpoint": "loopmart-web",
@@ -165,6 +187,8 @@ export const loopmartAdminTheme = {
     "--lm-mobile-display": "loopmart-web",
     "--lm-nonmobile-display": "loopmart-web",
     "--lm-wide-display": "loopmart-web",
+    "--lm-header-inline-search-display": "loopmart-web",
+    "--lm-header-stacked-search-display": "loopmart-web",
     "--lm-header-brand-size": "loopmart-web",
     "--lm-header-actions-gap": "loopmart-web",
     "--lm-header-search-gap": "loopmart-web",
@@ -179,6 +203,13 @@ export const loopmartAdminTheme = {
     "--lm-chat-page-min-height": "loopmart-web",
     "--lm-chat-content-height": "loopmart-web",
     "--lm-chat-heading-display": "loopmart-web",
+    "--lm-brand-mark-size": "loopmart-web",
+    "--lm-media-empty-height": "loopmart-web",
+    "--lm-catalog-columns": "loopmart-web",
+    "--lm-ride-direction": "loopmart-web",
+    "--lm-ride-rail-width": "loopmart-web",
+    "--lm-ride-rail-direction": "loopmart-web",
+    "--lm-ride-icon-display": "loopmart-web",
     "--lm-card-title-size": "loopmart-web",
     "--lm-card-body-padding": "loopmart-web",
     "--lm-price-card": "loopmart-web",
@@ -270,7 +301,7 @@ export const loopmartAdminTheme = {
       },
       "isPressed": {
         "backgroundColor": "var(--color-accent-muted)",
-        "color": "var(--color-accent)",
+        "color": "var(--color-text-accent)",
         "fontWeight": "600"
       }
     },
@@ -343,9 +374,9 @@ export const loopmartAdminTheme = {
         "boxShadow": "none"
       },
       "variant:admin-record": {
-        "backgroundColor": "#ffffff",
-        "border": "1px solid #e3e6e1",
-        "borderRadius": "9px",
+        "backgroundColor": "var(--color-background-surface)",
+        "border": "1px solid var(--color-border)",
+        "borderRadius": "var(--radius-container)",
         "padding": "18px"
       }
     },
@@ -369,28 +400,28 @@ export const loopmartAdminTheme = {
         "padding": "var(--lm-form-group-padding)"
       },
       "variant:admin-table": {
-        "border": "1px solid #e3e6e1",
-        "borderRadius": "9px",
-        "backgroundColor": "#ffffff",
+        "border": "1px solid var(--color-border)",
+        "borderRadius": "var(--radius-container)",
+        "backgroundColor": "var(--color-background-surface)",
         "padding": "0px",
         "overflow": "hidden"
       },
       "variant:admin-detail": {
-        "border": "1px solid #e3e6e1",
-        "borderRadius": "10px",
-        "backgroundColor": "#ffffff",
+        "border": "1px solid var(--color-border)",
+        "borderRadius": "var(--radius-container)",
+        "backgroundColor": "var(--color-background-surface)",
         "padding": "var(--lm-admin-detail-padding)"
       },
       "variant:admin-summary": {
-        "borderRadius": "7px",
-        "backgroundColor": "#f5f7f0",
-        "color": "#75816c",
+        "borderRadius": "var(--radius-element)",
+        "backgroundColor": "var(--color-background-muted)",
+        "color": "var(--color-text-secondary)",
         "padding": "14px"
       }
     },
     "chat-message-bubble": {
       "base": {
-        "borderRadius": "10px"
+        "borderRadius": "var(--radius-chat)"
       },
       "sender:user": {
         "backgroundColor": "var(--color-accent)",
@@ -417,10 +448,10 @@ export const loopmartAdminTheme = {
     },
     "top-nav-heading": {
       "base": {
-        "color": "#293a31",
+        "color": "var(--color-accent)",
         "fontSize": "21px",
         "fontWeight": "750",
-        "letterSpacing": "-0.9px",
+        "letterSpacing": "-0.03em",
         "--text-large-size": "21px",
         "--text-large-weight": "750"
       }
@@ -472,26 +503,26 @@ export const loopmartAdminTheme = {
     },
     "side-nav-heading": {
       "base": {
-        "color": "#293a31",
+        "color": "var(--color-accent)",
         "fontSize": "22px",
         "fontWeight": "750",
-        "letterSpacing": "-0.9px",
+        "letterSpacing": "-0.03em",
         "--text-large-size": "22px",
         "--text-large-weight": "750"
       }
     },
     "token": {
       "color:admin-status": {
-        "backgroundColor": "#f1f4ed",
-        "border": "1px solid #e1e7d9",
-        "color": "#6a7d5b",
+        "backgroundColor": "var(--color-background-muted)",
+        "border": "1px solid var(--color-border)",
+        "color": "var(--color-text-secondary)",
         "fontSize": "11px",
         "borderRadius": "4px"
       },
       "color:admin-brand": {
         "backgroundColor": "transparent",
-        "border": "1px solid #e2e6de",
-        "color": "#8a938a",
+        "border": "1px solid var(--color-border)",
+        "color": "var(--color-text-secondary)",
         "fontSize": "10px",
         "borderRadius": "4px",
         "padding": "2px 5px"
@@ -500,22 +531,22 @@ export const loopmartAdminTheme = {
     "text": {
       "type:admin-nav-index": {
         "fontSize": "10px",
-        "opacity": "0.55",
+        "color": "var(--lm-admin-subtle)",
         "fontVariantNumeric": "tabular-nums"
       },
       "type:admin-eyebrow": {
         "fontSize": "11px",
-        "color": "#8a9383"
+        "color": "var(--lm-admin-subtle)"
       },
       "type:admin-detail-label": {
         "fontSize": "11px",
-        "color": "#8a9383"
+        "color": "var(--lm-admin-subtle)"
       }
     },
     "table-header-cell": {
       "base": {
-        "backgroundColor": "#f4f6f0",
-        "color": "#7b8574",
+        "backgroundColor": "var(--color-background-muted)",
+        "color": "var(--color-text-secondary)",
         "fontSize": "11px",
         "fontWeight": "500",
         "padding": "13px 18px"
@@ -525,18 +556,18 @@ export const loopmartAdminTheme = {
       "base": {
         "fontSize": "12px",
         "padding": "17px 18px",
-        "borderColor": "#edf0e9"
+        "borderColor": "var(--color-border)"
       }
     },
     "table-row": {
       "base": {
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "var(--color-background-surface)"
       }
     },
     "table-scroll-wrapper": {
       "base": {
-        "borderRadius": "9px",
-        "backgroundColor": "#ffffff"
+        "borderRadius": "var(--radius-container)",
+        "backgroundColor": "var(--color-background-surface)"
       }
     }
   },
@@ -560,7 +591,7 @@ export const loopmartAdminTheme = {
     "widthBreakpoints": {
       "sm": 640,
       "md": 768,
-      "lg": 1050,
+      "lg": 1024,
       "xl": 1200,
       "2xl": 1536
     },
@@ -600,6 +631,10 @@ export const loopmartAdminTheme = {
         },
         "value": {
           "localTokens": {
+            "--lm-header-inline-search-display": "none",
+            "--lm-header-stacked-search-display": "flex",
+            "--lm-page-header-height": "128px",
+            "--lm-catalog-columns": "2",
             "--lm-admin-sidebar-width": "196px",
             "--lm-admin-gutter": "22px",
             "--lm-admin-page-top": "28px",
@@ -616,11 +651,20 @@ export const loopmartAdminTheme = {
         "value": {
           "tokens": {
             "--text-heading-1-size": "25px",
+            "--text-body-size": "16px",
             "--size-element-sm": "44px",
             "--size-element-md": "44px",
             "--size-element-lg": "44px"
           },
           "localTokens": {
+            "--lm-header-stacked-search-display": "none",
+            "--lm-brand-mark-size": "24px",
+            "--lm-media-empty-height": "112px",
+            "--lm-ride-direction": "column",
+            "--lm-ride-rail-width": "100%",
+            "--lm-ride-rail-direction": "row",
+            "--lm-ride-icon-display": "none",
+            "--lm-control-font": "16px",
             "--lm-page-header-height": "176px",
             "--lm-chat-page-inset": "0",
             "--lm-chat-page-max": "100%",
@@ -651,6 +695,38 @@ export const loopmartAdminTheme = {
             "--lm-admin-page-bottom": "36px",
             "--lm-admin-detail-padding": "20px",
             "--lm-admin-dialog-padding": "22px"
+          },
+          "components": {
+            "button": {
+              "base": {
+                "minWidth": "44px"
+              }
+            },
+            "text-input": {
+              "base": {
+                "fontSize": "16px"
+              }
+            },
+            "text-area": {
+              "base": {
+                "fontSize": "16px"
+              }
+            },
+            "selector": {
+              "base": {
+                "fontSize": "16px"
+              }
+            },
+            "date-input": {
+              "base": {
+                "fontSize": "16px"
+              }
+            },
+            "date-time-input": {
+              "base": {
+                "fontSize": "16px"
+              }
+            }
           }
         }
       },
@@ -665,6 +741,8 @@ export const loopmartAdminTheme = {
             "--text-heading-1-size": "23px"
           },
           "localTokens": {
+            "--lm-control-font": "16px",
+            "--lm-control-height": "44px",
             "--lm-form-padding": "22px",
             "--lm-form-group-padding": "18px"
           },

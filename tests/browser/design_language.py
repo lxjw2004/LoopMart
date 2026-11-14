@@ -1,4 +1,4 @@
-"""Preserve LoopMart's original public blue and admin green design languages.
+"""Verify the approved orange/white campus exchange design in real browsers.
 
 Requires running frontend servers, never a database. All API/auth requests are
 fulfilled by the same deterministic fixtures as astryx_ui.py.
@@ -9,7 +9,7 @@ import copy
 import os
 import re
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from astryx_ui import Fixture, ITEM, RIDE, OUT, open_page, capture_errors, chat_composer_labels
 
@@ -80,7 +80,7 @@ def panel_surface(panel):
 
 def font_checks(checks, element, label):
     family = css(element, "font-family")
-    checks.check(not re.search("Figtree", family, re.I) and bool(re.search("system-ui|apple-system|BlinkMacSystemFont|Segoe UI", family)), f"{label}: original system font stack, got {family}")
+    checks.check(not re.search("Figtree", family, re.I) and bool(re.search("system-ui|apple-system|BlinkMacSystemFont|Segoe UI", family)), f"{label}: system font stack, got {family}")
 
 
 def columns(checks, page, expected):
@@ -93,6 +93,69 @@ def columns(checks, page, expected):
     checks.check(actual == expected, f"{page.url} width={page.viewport_size['width']}: {expected} columns, got {actual}")
 
 
+CANVAS = "rgb(248, 248, 246)"
+PRIMARY = "rgb(207, 63, 35)"
+
+
+def settle_layout(page):
+    page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+
+
+def content_width(element):
+    return element.evaluate("node => { const s = getComputedStyle(node); return node.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight); }")
+
+
+def no_overflow(checks, page):
+    dimensions = page.evaluate("({scroll: document.documentElement.scrollWidth, viewport: innerWidth})")
+    checks.check(dimensions["scroll"] <= dimensions["viewport"], f"{page.url}: no horizontal page overflow, got {dimensions}")
+
+
+def filters_panel(page, checks, ride=False):
+    """Filters remain accessible at every width; closed panels take no space."""
+    width = page.viewport_size["width"]
+    checks.check(page.locator(".filter-sidebar, .browse-sidebar").filter(visible=True).count() == 0,
+                 f"{page.url} {width}: filters do not consume a desktop sidebar")
+    trigger = page.get_by_role("button", name="筛选", exact=True).filter(visible=True)
+    checks.check(trigger.count() == 1, f"{page.url} {width}: one visible filter trigger")
+    if trigger.count() != 1:
+        return
+    trigger.click()
+    dialog = page.get_by_role("dialog", name="筛选", exact=True).filter(visible=True)
+    # The same semantic contract covers Dialog and the mobile BottomSheet.
+    try:
+        dialog.wait_for(state="visible", timeout=5000)
+    except Exception:
+        checks.check(False, f"{page.url} {width}: filter trigger opens a labelled dialog")
+        return
+    labels = ["出发地", "目的地", "日期"] if ride else ["最低价格", "最高价格", "成色", "交付方式"]
+    for label in labels:
+        checks.check(dialog.get_by_label(label, exact=True).count() > 0, f"{page.url}: filter keeps business label {label}")
+    checks.check(dialog.get_by_role("button", name="应用筛选", exact=True).count() == 1, "filter panel has apply action")
+    checks.check(dialog.get_by_role("button", name="清空", exact=True).count() == 1, "filter panel has clear action")
+    no_overflow(checks, page)
+    page.keyboard.press("Escape")
+    try:
+        dialog.wait_for(state="hidden", timeout=5000)
+    except Exception:
+        checks.check(False, f"{page.url}: Escape closes filters")
+    try:
+        expect(trigger).to_be_focused(timeout=2000)
+    except AssertionError:
+        checks.check(False, f"{page.url} {width}: closing filters returns focus to trigger")
+
+
+def listing_media(page, checks):
+    media = checks.find(page, ".listing-card .media-main")
+    if not media:
+        return
+    box = media.bounding_box()
+    if media.locator("img").count():
+        checks.check(abs(box["width"] / box["height"] - 4 / 3) < .02, f"listing photo retains 4:3, got {box}")
+    else:
+        height = 112 if page.viewport_size["width"] < 768 else 160
+        checks.check(near(box["height"], height, 2), f"{page.viewport_size['width']}: no-photo preview is compact ({height}px), got {box['height']}")
+
+
 def web_design(page, fixture, checks):
     fixture.items = [{**copy.deepcopy(ITEM), "id": f"item-{index}", "title": f"Campus textbook {index}"} for index in range(8)]
     fixture.rides = [{**copy.deepcopy(RIDE), "id": f"ride-{index}"} for index in range(5)]
@@ -100,81 +163,82 @@ def web_design(page, fixture, checks):
     open_page(page, WEB, "/items")
     shell = checks.find(page, ".web-shell")
     canvas = shell or page.locator("body")
-    checks.check(background(canvas) == "rgb(245, 247, 251)", f"public canvas: expected #f5f7fb, got {background(canvas)}")
+    checks.check(background(canvas) == CANVAS, f"public canvas: expected #f8f8f6, got {background(canvas)}")
     main = checks.find(page, ".web-main")
     if main:
-        checks.check(background(main) == "rgb(245, 247, 251)", f"public main painted canvas: expected #f5f7fb, got {background(main)}")
+        checks.check(background(main) == CANVAS, f"public main painted canvas: expected #f8f8f6, got {background(main)}")
     heading = page.get_by_role("heading", level=1)
     checks.check(heading.count() > 0, "public main heading renders")
     font_checks(checks, heading.first if heading.count() else canvas, "public")
     publish = page.get_by_role("link", name=re.compile("^(?:＋ )?发布$")).filter(visible=True).first
     if publish.count():
-        checks.check(css(publish, "background-color") == "rgb(38, 89, 236)", f"public primary action: expected #2659ec, got {css(publish, 'background-color')}")
-        checks.check(near(css(publish, "border-top-left-radius"), 8), f"public primary action: original 8px radius, got {css(publish, 'border-top-left-radius')}")
-        checks.check(40 <= publish.bounding_box()["height"] <= 47, f"public primary action: original 40px minimum control height, got {publish.bounding_box()['height']}")
+        checks.check(css(publish, "background-color") == PRIMARY, f"public primary action: expected #cf3f23, got {css(publish, 'background-color')}")
+        checks.check(near(css(publish, "border-top-left-radius"), 10), "public primary action uses 10px control radius")
+        checks.check(publish.bounding_box()["height"] >= 40, "public desktop publish is a usable control")
     else:
         checks.check(False, "public header publish action missing")
-
-    header = checks.find(page, ".market-header")
-    search = checks.find(page, ".global-search")
-    subnav = checks.find(page, ".subnav")
-    if header and search:
-        checks.check(search.evaluate("node => Boolean(node.closest('.market-header'))"), "public search must stay inside the main header")
-        checks.check(near(css(search, "border-top-left-radius"), 8), "header search keeps its 8px painted radius")
-    if header and subnav:
-        primary_row = checks.find(page, ".header-inner")
-        h, n = (primary_row or header).bounding_box(), subnav.bounding_box()
-        checks.check(n["y"] >= h["y"] + h["height"] - 1, "public primary header and separate secondary navigation retain their hierarchy")
-        checks.check(background(subnav) == "rgb(245, 247, 251)", f"public secondary navigation keeps the gray canvas, got {background(subnav)}")
-
+    checks.find(page, ".market-header")
+    checks.find(page, ".global-search")
     card = checks.find(page, ".listing-card")
     if card:
-        checks.check(near(css(card, "border-top-left-radius"), 12), "listing cards keep the original 12px radius")
-        media = checks.find(page, ".listing-card .media-main")
-        if media:
-            bounds = media.bounding_box()
-            checks.check(abs(bounds["width"] / bounds["height"] - 4 / 3) < .02, f"listing image/placeholder keeps 4:3, got {bounds}")
-        title = card.get_by_role("heading").first
-        checks.check(near(css(title, "font-size"), 16), f"desktop listing title remains 16px, got {css(title, 'font-size')}")
-        price = checks.find(page, ".listing-card .listing-price")
-        if price:
-            checks.check(near(css(price, "font-size"), 25), f"desktop listing price remains 25px, got {css(price, 'font-size')}")
-    columns(checks, page, 3)
-    page.screenshot(path=str(SHOTS / "public-desktop.png"), full_page=True)
-
-    for width in [1200, 1199, 1024, 768, 390, 320]:
+        checks.check(near(css(card, "border-top-left-radius"), 14), "listing cards use approved 14px radius")
+        checks.check(background(card) == "rgb(255, 255, 255)", "listing cards retain white surfaces")
+        if main:
+            checks.check(page.locator(".card-grid").bounding_box()["width"] >= content_width(main) * .9,
+                         "product grid uses the available main content width")
+    for width in [1440, 1200, 1024, 1023, 768, 390, 320]:
         page.set_viewport_size({"width": width, "height": 1000 if width >= 768 else 844})
-        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-        columns(checks, page, 3 if width >= 1200 else 2)
-        sidebar_visible = page.locator(".filter-sidebar").filter(visible=True).count() > 0
-        checks.check(sidebar_visible == (width >= 1200), f"public filters at {width}: sidebar visible only from 1200px, got {sidebar_visible}")
+        settle_layout(page)
+        columns(checks, page, 3 if width >= 1024 else 2)
+        categories = checks.find(page, ".category-nav")
+        if categories:
+            buttons = categories.get_by_role("button")
+            checks.check(buttons.count() >= 7, f"{width}: all product categories remain available")
+            selected = categories.get_by_role("button", pressed=True)
+            checks.check(selected.count() == 1, f"{width}: one active category is announced")
+            if selected.count() == 1:
+                checks.check(css(selected, "background-color") == "rgb(255, 240, 233)", f"{width}: active category remains visually distinct")
+            boxes = [button.bounding_box() for button in buttons.all()]
+            checks.check(all(box and abs(box["y"] - boxes[0]["y"]) < 2 for box in boxes), f"{width}: product categories stay in one horizontal row")
+        listing_media(page, checks)
+        no_overflow(checks, page)
+        if width in [1440, 768, 390, 320]:
+            filters_panel(page, checks)
         if width < 768:
             nav = checks.find(page, ".mobile-nav")
             if nav:
                 box = nav.bounding_box()
-                checks.check(css(nav, "position") == "fixed" and abs(box["y"] + box["height"] - page.viewport_size["height"]) <= 1, f"{width}: original mobile bottom navigation remains pinned")
-            price = page.locator(".listing-card .listing-price").first
-            if price.count():
-                checks.check(near(css(price, "font-size"), 22), f"{width}: mobile listing price remains 22px")
-    page.screenshot(path=str(SHOTS / "public-mobile.png"), full_page=True)
+                checks.check(css(nav, "position") == "fixed" and abs(box["y"] + box["height"] - page.viewport_size["height"]) <= 1, f"{width}: mobile bottom navigation remains pinned")
+                checks.check(nav.get_by_role("link").count() == 5, f"{width}: mobile navigation retains five destinations")
+        if width in [1440, 390]:
+            page.screenshot(path=str(SHOTS / ("public-desktop.png" if width == 1440 else "public-mobile.png")), full_page=True)
 
     open_page(page, WEB, "/rides")
-    for width in [1440, 1024, 390, 320]:
+    for width in [1440, 1024, 768, 390, 320]:
         page.set_viewport_size({"width": width, "height": 1000 if width >= 768 else 844})
-        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-        columns(checks, page, 3 if width >= 1200 else 2 if width >= 768 else 1)
-        sidebar_visible = page.locator(".filter-sidebar").filter(visible=True).count() > 0
-        checks.check(sidebar_visible == (width >= 1200), f"ride filters at {width}: sidebar visible only from 1200px, got {sidebar_visible}")
+        settle_layout(page)
+        columns(checks, page, 1)
+        first = page.locator(".listing-card").first
+        content = page.locator(".web-main")
+        if first.count() and content.count():
+            checks.check(first.bounding_box()["width"] >= content_width(content) * .9,
+                         f"{width}: itinerary card spans main content width")
+        checks.check(page.locator(".filter-sidebar, .browse-sidebar").filter(visible=True).count() == 0, f"{width}: rides have no sidebar")
+        no_overflow(checks, page)
+        if width in [1440, 390]:
+            filters_panel(page, checks, ride=True)
+            page.screenshot(path=str(SHOTS / ("rides-desktop.png" if width == 1440 else "rides-mobile.png")), full_page=True)
     open_page(page, WEB, "/publish?kind=items")
     title = page.get_by_role("textbox", name="标题", exact=True)
     checks.check(title.count() > 0, "public publish title input renders")
     if title.count():
         control = painted_control(title)
-        checks.check(near(control["radius"], 8) and control["height"] >= 44, f"public mobile field keeps 8px radius and 44px minimum height, got {control}")
+        checks.check(near(control["radius"], 10) and control["height"] >= 44, f"public mobile field uses 10px radius and >=44px height, got {control}")
     submit = page.get_by_role("button", name="发布商品", exact=True)
     checks.check(submit.count() > 0, "public publish action renders")
     if submit.count():
-        checks.check(near(css(submit, "border-top-left-radius"), 8) and submit.bounding_box()["height"] >= 44, f"public mobile submit keeps 8px radius and 44px minimum height, got {css(submit, 'border-top-left-radius')}/{submit.bounding_box()['height']}")
+        checks.check(css(submit, "background-color") == PRIMARY, "mobile publish uses brand orange")
+        checks.check(near(css(submit, "border-top-left-radius"), 10) and submit.bounding_box()["height"] >= 44, "public mobile submit uses 10px radius and >=44px height")
     page.screenshot(path=str(SHOTS / "public-publish-mobile.png"), full_page=True)
     open_page(page, WEB, "/messages/conversation-1")
     chat = checks.find(page, ".messages-layout")
@@ -192,12 +256,12 @@ def admin_design(page, fixture, checks):
     open_page(page, ADMIN, "/admin/items")
     shell = checks.find(page, ".admin-shell")
     canvas = shell or page.locator("body")
-    checks.check(background(canvas) == "rgb(247, 248, 245)", f"admin canvas: expected #f7f8f5, got {background(canvas)}")
+    checks.check(background(canvas) == CANVAS, f"admin canvas: expected #f8f8f6, got {background(canvas)}")
     heading = page.get_by_role("heading", level=1)
     checks.check(heading.count() > 0, "admin main heading renders")
     font_checks(checks, heading.first if heading.count() else canvas, "admin")
     if heading.count():
-        checks.check(background(heading.first) == "rgb(247, 248, 245)", f"admin main painted canvas: expected #f7f8f5, got {background(heading.first)}")
+        checks.check(background(heading.first) == CANVAS, f"admin main painted canvas: expected #f8f8f6, got {background(heading.first)}")
     sidebar = checks.find(page, ".admin-sidebar")
     brand = checks.find(page, ".admin-brand")
     if sidebar:
@@ -207,25 +271,29 @@ def admin_design(page, fixture, checks):
     panel = checks.find(page, ".admin-table-scroll")
     if panel:
         surface = panel_surface(panel)
-        checks.check(surface["background"] == "rgb(255, 255, 255)", f"admin resource table retains a white panel, got {surface}")
-        checks.check(near(surface["radius"], 9), f"admin table panel keeps 9px radius, got {surface['radius']}")
+        checks.check(surface["background"] == "rgb(255, 255, 255)", f"admin table retains a white panel, got {surface}")
+        checks.check(near(surface["radius"], 12), f"admin table panel uses 12px radius, got {surface['radius']}")
+    rows = page.get_by_role("row").filter(visible=True)
+    checks.check(rows.count() > 1, "admin resource table has populated rows")
+    for row in rows.all()[1:]:
+        checks.check(row.bounding_box()["height"] <= 80, "admin resource rows remain compact rather than becoming cards")
     field = page.get_by_role("textbox", name="搜索", exact=True)
     checks.check(field.count() > 0, "admin search input renders")
     if field.count():
         control = painted_control(field)
-        checks.check(near(control["radius"], 6) and control["height"] >= 38, f"admin field keeps 6px radius and 38px minimum height, got {control}")
+        checks.check(near(control["radius"], 8) and control["height"] >= 38, f"admin field uses 8px radius and compact usable height, got {control}")
     page.screenshot(path=str(SHOTS / "admin-table-desktop.png"), full_page=True)
     open_page(page, ADMIN, "/admin/settings")
     submit = page.get_by_role("button", name="保存", exact=True).filter(visible=True).first
     checks.check(submit.count() > 0, "admin settings save control renders")
     if submit.count():
-        checks.check(css(submit, "background-color") == "rgb(61, 96, 88)", f"admin primary action: expected #3d6058, got {css(submit, 'background-color')}")
-        checks.check(near(css(submit, "border-top-left-radius"), 6) and 36 <= submit.bounding_box()["height"] <= 40, f"admin submit keeps 6px radius and compact 36px height, got {css(submit, 'border-top-left-radius')}/{submit.bounding_box()['height']}")
+        checks.check(css(submit, "background-color") == PRIMARY, f"admin primary action: expected #cf3f23, got {css(submit, 'background-color')}")
+        checks.check(near(css(submit, "border-top-left-radius"), 8) and 36 <= submit.bounding_box()["height"] <= 44, "admin submit uses 8px radius and compact height")
     open_page(page, ADMIN, "/admin/overview")
     metrics = page.locator(".admin-metric").filter(visible=True)
     checks.check(metrics.count() > 0, "admin overview retains discrete white metric cards")
     for metric in metrics.all():
-        checks.check(background(metric) == "rgb(255, 255, 255)" and near(css(metric, "border-top-left-radius"), 9), "admin metric card retains white surface and 9px radius")
+        checks.check(background(metric) == "rgb(255, 255, 255)" and near(css(metric, "border-top-left-radius"), 12), "admin metric card uses white surface and 12px radius")
     page.screenshot(path=str(SHOTS / "admin-overview-desktop.png"), full_page=True)
 
 
@@ -264,7 +332,7 @@ def main():
             browser.close()
     if checks.failures:
         raise SystemExit(f"{len(checks.failures)} design-language regressions; screenshots: {SHOTS}")
-    print("PASS original public blue/admin green visual language, geometry and responsive layout; all API mocked, no database writes")
+    print("PASS campus exchange orange/white design, full-width listings, panel filters and responsive geometry; all API mocked, no database writes")
 
 
 if __name__ == "__main__":

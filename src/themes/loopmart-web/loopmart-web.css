@@ -82,24 +82,24 @@
 @layer astryx-theme {
 @scope ([data-astryx-theme="loopmart-web"]) to ([data-astryx-theme]) {
   :scope {
-    --color-accent: #2659ec;
-    --color-accent-muted: #edf2ff;
+    --color-accent: #cf3f23;
+    --color-accent-muted: #fff0e9;
     --color-on-accent: #ffffff;
-    --color-neutral: #edf2ff;
-    --color-background-body: #f5f7fb;
+    --color-neutral: #fff0e9;
+    --color-background-body: #f8f8f6;
     --color-background-surface: #ffffff;
     --color-background-card: #ffffff;
     --color-background-popover: #ffffff;
-    --color-background-muted: #edf0f5;
-    --color-text-primary: #17243b;
-    --color-text-secondary: #53627a;
-    --color-text-accent: #2659ec;
-    --color-text-disabled: #94a0b2;
-    --color-icon-primary: #17243b;
-    --color-icon-secondary: #53627a;
-    --color-icon-accent: #2659ec;
-    --color-border: #e2e7ef;
-    --color-border-emphasized: #d5dce7;
+    --color-background-muted: #f0f2ed;
+    --color-text-primary: #252b28;
+    --color-text-secondary: #626d65;
+    --color-text-accent: #b9351d;
+    --color-text-disabled: #929a94;
+    --color-icon-primary: #252b28;
+    --color-icon-secondary: #626d65;
+    --color-icon-accent: #cf3f23;
+    --color-border: #e2e6df;
+    --color-border-emphasized: #c5cdc3;
     --color-error: #b42318;
     --color-on-error: #ffffff;
     --color-text-error: #b42318;
@@ -109,9 +109,22 @@
     --color-success: #137547;
     --color-text-success: #137547;
     --color-icon-success: #137547;
-    --color-overlay: #14243b70;
-    --color-overlay-hover: #17243b08;
-    --color-overlay-pressed: #17243b12;
+    --color-success-muted: #edf7ef;
+    --color-on-success: #ffffff;
+    --color-on-success-muted: #137547;
+    --color-info: #cf3f23;
+    --color-text-info: #b9351d;
+    --color-icon-info: #cf3f23;
+    --color-info-muted: #fff0e9;
+    --color-on-info: #ffffff;
+    --color-on-info-muted: #b9351d;
+    --color-background-inverted: #252b28;
+    --color-skeleton: #c5cdc3;
+    --color-track: #c5cdc3;
+    --color-shadow: #252b2814;
+    --color-overlay: #252b2870;
+    --color-overlay-hover: #252b2808;
+    --color-overlay-pressed: #252b2812;
     --font-family-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     --font-family-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     --font-family-code: "SFMono-Regular", Consolas, monospace;
@@ -140,20 +153,15 @@
     --size-element-md: 40px;
     --size-element-lg: 44px;
     --radius-inner: 4px;
-    --radius-element: 8px;
-    --radius-container: 12px;
-    --radius-page: 12px;
-    --radius-chat: 12px;
+    --radius-element: 10px;
+    --radius-container: 14px;
+    --radius-page: 14px;
+    --radius-chat: 14px;
     --focus-outline-width: 3px;
-    --focus-outline-color: #81a5ff;
+    --focus-outline-color: #cf3f23;
     --focus-outline-offset: 3px;
-    --color-text-info: light-dark(#0064E0, #0064E0);
-    --color-on-success: light-dark(#FFFFFF, #FFFFFF);
     --color-text-warning: light-dark(#93701D, #907212);
-    --color-on-info-muted: light-dark(#1060CD, #095BC8);
-    --color-on-success-muted: light-dark(#107346, #066F42);
     --color-on-warning-muted: light-dark(#88650B, #7F6513);
-    --color-icon-info: var(--color-text-info);
     --color-icon-warning: var(--color-text-warning);
     --color-border-info: var(--color-text-info);
     --color-border-success: var(--color-text-success);
@@ -172,6 +180,8 @@
     --lm-mobile-display: none;
     --lm-nonmobile-display: flex;
     --lm-wide-display: none;
+    --lm-header-inline-search-display: flex;
+    --lm-header-stacked-search-display: none;
     --lm-header-brand-size: 27px;
     --lm-header-actions-gap: 20px;
     --lm-header-search-gap: 20px;
@@ -180,28 +190,35 @@
     --lm-subnav-padding: 20px;
     --lm-account-max-width: 120px;
     --lm-page-bottom: 40px;
-    --lm-page-header-height: 140px;
+    --lm-page-header-height: 72px;
     --lm-chat-page-inset: 1;
     --lm-chat-page-max: 1440px;
     --lm-chat-page-min-height: calc(100dvh - var(--lm-page-header-height));
     --lm-chat-content-height: auto;
     --lm-chat-heading-display: block;
+    --lm-brand-mark-size: 26px;
+    --lm-media-empty-height: 160px;
+    --lm-catalog-columns: 3;
+    --lm-ride-direction: row;
+    --lm-ride-rail-width: 160px;
+    --lm-ride-rail-direction: column;
+    --lm-ride-icon-display: flex;
     --lm-card-title-size: 16px;
     --lm-card-body-padding: 18px;
     --lm-price-card: 24px;
     --lm-price-card-mobile: 22px;
     --lm-price-detail: 40px;
     --lm-publisher-size: 12px;
-    --lm-media-background: #edf0f5;
-    --lm-chat-background: #fafbfd;
+    --lm-media-background: #f0f2ed;
+    --lm-chat-background: #f8f8f6;
     --lm-chat-sidebar-width: 300px;
     --lm-chat-chrome-height: 260px;
-    --lm-accent-hover: #1e47c0;
+    --lm-accent-hover: #b9351d;
     --lm-control-font: 14px;
-    --lm-control-border: #d5dce7;
+    --lm-control-border: #c5cdc3;
     --lm-control-height: 40px;
     --lm-control-padding-inline: 12px;
-    --lm-label-color: #53627a;
+    --lm-label-color: #626d65;
     --lm-button-padding: 10px 16px;
     --lm-button-weight: 600;
     --lm-form-max: 760px;
@@ -222,11 +239,11 @@
     --lm-admin-detail-padding: 28px;
     --lm-admin-record-label-width: 100px;
     --lm-admin-audit-height: 500px;
-    --lm-admin-nav-background: #fdfefb;
-    --lm-admin-nav-text: #70796f;
-    --lm-admin-nav-selected: #eaf0e7;
-    --lm-admin-nav-selected-text: #355446;
-    --lm-admin-subtle: #8a9383;
+    --lm-admin-nav-background: #ffffff;
+    --lm-admin-nav-text: #626d65;
+    --lm-admin-nav-selected: #fff0e9;
+    --lm-admin-nav-selected-text: #b9351d;
+    --lm-admin-subtle: #626d65;
   }
 
   :scope {
@@ -283,7 +300,7 @@
 
   .astryx-toggle-button[data-is-pressed="isPressed"] {
     background-color: var(--color-accent-muted);
-    color: var(--color-accent);
+    color: var(--color-text-accent);
     font-weight: 600;
   }
 
@@ -372,7 +389,7 @@
   }
 
   .astryx-chat-message-bubble {
-    border-radius: 10px;
+    border-radius: var(--radius-chat);
   }
 
   .astryx-chat-message-bubble[data-sender="user"] {
@@ -401,7 +418,7 @@
     color: var(--color-accent);
     font-size: 27px;
     font-weight: 800;
-    letter-spacing: -1px;
+    letter-spacing: -0.03em;
   }
 
   .astryx-top-nav-item {
@@ -463,9 +480,13 @@
   }
 }
 
-@media (width < 1050px) {
+@media (width < 1024px) {
   @scope ([data-astryx-theme="loopmart-web"]) to ([data-astryx-theme]) {
     :scope {
+    --lm-header-inline-search-display: none;
+    --lm-header-stacked-search-display: flex;
+    --lm-page-header-height: 128px;
+    --lm-catalog-columns: 2;
     --lm-admin-sidebar-width: 196px;
     --lm-admin-gutter: 22px;
     --lm-admin-page-top: 28px;
@@ -478,9 +499,18 @@
   @scope ([data-astryx-theme="loopmart-web"]) to ([data-astryx-theme]) {
     :scope {
     --text-heading-1-size: calc(25px * var(--_dynamic-type-title1, 1));
+    --text-body-size: calc(16px * var(--_dynamic-type-body, 1));
     --size-element-sm: 44px;
     --size-element-md: 44px;
     --size-element-lg: 44px;
+    --lm-header-stacked-search-display: none;
+    --lm-brand-mark-size: 24px;
+    --lm-media-empty-height: 112px;
+    --lm-ride-direction: column;
+    --lm-ride-rail-width: 100%;
+    --lm-ride-rail-direction: row;
+    --lm-ride-icon-display: none;
+    --lm-control-font: 16px;
     --lm-page-header-height: 176px;
     --lm-chat-page-inset: 0;
     --lm-chat-page-max: 100%;
@@ -511,6 +541,30 @@
     --lm-admin-page-bottom: 36px;
     --lm-admin-detail-padding: 20px;
     --lm-admin-dialog-padding: 22px;
+  }
+
+    .astryx-button {
+    min-width: 44px;
+  }
+
+    .astryx-text-input {
+    font-size: 16px;
+  }
+
+    .astryx-text-area {
+    font-size: 16px;
+  }
+
+    .astryx-selector {
+    font-size: 16px;
+  }
+
+    .astryx-date-input {
+    font-size: 16px;
+  }
+
+    .astryx-date-time-input {
+    font-size: 16px;
   }
   }
 }

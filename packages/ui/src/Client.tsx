@@ -1,23 +1,16 @@
 "use client";
 import { useEffect, useLayoutEffect, useState, useRef, type ComponentProps } from "react";
-import DataForm from "./DataForm";
+import dynamic from "next/dynamic";
+import type DataFormComponent from "./DataForm";
 import { parseRoute, legacyTarget, routeHref, accountTabFromUrl, accountLocationKey, type AccountTab } from "./navigation";
 import WebShell from "./web/WebShell";
-import BrowsePage from "./web/BrowsePage";
-import AccountPage from "./web/AccountPage";
-import ListingDetail from "./web/ListingDetail";
-import ListingCard from "./web/ListingCard";
-import PublishPage from "./web/PublishPage";
-import MessagesPage from "./web/MessagesPage";
 import AdminShell from "./admin/AdminShell";
-import ResourceList from "./admin/ResourceList";
-import ResourceDetail from "./admin/ResourceDetail";
-import ConfirmAction from "./admin/AdminForms";
+import BrowsePage from "./web/BrowsePage";
+import ListingCard from "./web/ListingCard";
 import Details from "./Details";
 import RideMeta from "./RideMeta";
 import RideLocationInput from "./shared/RideLocationInput";
 import { errorText, RequestError } from "./errors";
-import ProfileListings from "./ProfileListings";
 import { departureInstant, departureLocal, formatDeparture } from "./time";
 import { api, auth, conversationMessages } from "./api";
 import { labels } from "../../i18n/src";
@@ -43,6 +36,24 @@ import { ToggleButton } from "@astryxdesign/core/ToggleButton";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useLayout } from "./shared/design";
+
+function PageSkeleton() {
+  return <VStack gap={4} width="100%" aria-busy="true">
+    <Skeleton height="calc(var(--spacing-12) * 4)" />
+    <Skeleton height="var(--spacing-8)" />
+  </VStack>;
+}
+
+const DataForm = dynamic(() => import("./DataForm"), { loading: PageSkeleton });
+const AccountPage = dynamic(() => import("./web/AccountPage"), { loading: PageSkeleton });
+const ListingDetail = dynamic(() => import("./web/ListingDetail"), { loading: PageSkeleton });
+const PublishPage = dynamic(() => import("./web/PublishPage"), { loading: PageSkeleton });
+const MessagesPage = dynamic(() => import("./web/MessagesPage"), { loading: PageSkeleton });
+const ResourceList = dynamic(() => import("./admin/ResourceList"), { loading: PageSkeleton });
+const ResourceDetail = dynamic(() => import("./admin/ResourceDetail"), { loading: PageSkeleton });
+const ConfirmAction = dynamic(() => import("./admin/AdminForms"), { loading: PageSkeleton });
+const ProfileListings = dynamic(() => import("./ProfileListings"), { loading: PageSkeleton });
+
 type Row = Record<string, any>;
 const itemFields = {
   title: "text",
@@ -341,7 +352,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
     }));
   }
   function language(){setEn(!en);try{localStorage.setItem('loopmart-language',en?'zh':'en')}catch{}}
-  function applyBrowse(values:Row){const {q='',...next}=values;setQuery(q);setFilters(next);setCursor(null);const params=new URLSearchParams(Object.entries(values).filter(([,v])=>String(v)!=='').map(([k,v])=>[k,String(v)]));history.pushState(null,'',routeHref(page,admin)+(params.size?'?'+params:''));run(()=>load(false,values));}
+  function applyBrowse(values:Row){const {q='',...next}=values;setQuery(q);setFilters(next);setCursor(null);const params=new URLSearchParams(Object.entries(values).filter(([,v])=>String(v)!=='').map(([k,v])=>[k,String(v)]));history.pushState(null,'',routeHref(page,admin)+(params.size?'?'+params:''));run(()=>load(false,{...values,q}));}
   async function contactListing(){
     const listing=detail!;const token=selectionSeq.current;if(!me){go('login');return;}
     const c=await api('/conversations','POST',{otherUserId:listing.publisherId});
@@ -354,6 +365,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
   const authForm = (authMode: string, embedded = false) => (
     <DataForm
       submitFullWidth embedded={embedded}
+      authMode={authMode}
       successMessage={embedded && authMode === 'change-email' ? say("请求已提交，请检查邮箱", "Request submitted. Check your email") : undefined}
       key={authMode}
       submitLabel={({
@@ -419,7 +431,6 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
     history.pushState(null, '', url.pathname + url.search);
     syncLocation();
   }
-  const stickyBrowseTitle=!admin&&desktop&&sessionLoaded&&!routeId&&!editing&&['items','rides'].includes(page);
   const Shell=admin?AdminShell:WebShell;
   const reportProps = {t, say, run, busy, kind};
   return (
@@ -433,7 +444,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
         actionLabel={say("删除", "Delete")} cancelLabel={say("取消", "Cancel")} isActionLoading={busy}
         onAction={() => run(async () => { await deleteAction?.(); setDeleteAction(null); })} />
       <VStack gap={6} width="100%" style={{position: "relative", minWidth: 0, flexGrow: admin ? undefined : 1, height: !admin && page === "conversations" && (routeId || detail) ? "var(--lm-chat-content-height)" : undefined}} className={admin?'admin-page-content':'web-page-content'}>
-        {!stickyBrowseTitle && !(!admin && mobile && page === "conversations" && (routeId || detail)) && <Heading level={1} style={admin && page === "login" ? {maxWidth:"var(--lm-auth-width)",width:"100%",marginInline:"auto",marginBlockStart:"5vh"} : !admin && page === "conversations" && (routeId || detail) ? {display:"var(--lm-chat-heading-display)"} : undefined}>{admin?({items:say('商品','Items'),conversations:say('会话','Conversations'),contact:say('联系表单','Contact'),audit:say('审计日志','Audit log')} as Row)[page]||t(page):page === "profile" ? say("我的发布", "My posts") : t(page)}</Heading>}
+        {!(!admin && mobile && page === "conversations" && (routeId || detail)) && <Heading level={1} style={admin && page === "login" ? {maxWidth:"var(--lm-auth-width)",width:"100%",marginInline:"auto",marginBlockStart:"5vh"} : !admin && page === "conversations" && (routeId || detail) ? {display:"var(--lm-chat-heading-display)"} : undefined}>{admin?({items:say('商品','Items'),conversations:say('会话','Conversations'),contact:say('联系表单','Contact'),audit:say('审计日志','Audit log')} as Row)[page]||t(page):page === "profile" ? say("账户中心", "Account") : t(page)}</Heading>}
         {me?.banned && <Banner status="error" title={say("账号已封禁", "Account suspended")} role="alert" />}
         {me && !me.emailVerified && (
           <Banner status="warning" title={say("请验证邮箱以继续", "Verify your email to continue")}
@@ -1056,13 +1067,13 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
                     />
                   </VStack>
                 )}
-                {admin ? <ResourceList resource={page} rows={rows} onOpen={open} english={en} t={t} busy={busy}/> : <Grid columns={mobile ? (kind === "rides" ? 1 : 2) : desktop ? 3 : 2} gap={mobile ? 3 : 5} className="grid">
+                {admin ? <ResourceList resource={page} rows={rows} onOpen={open} english={en} t={t} busy={busy}/> : <Grid columns={kind === "rides" ? 1 : mobile ? 2 : desktop ? 3 : 2} gap={mobile ? 3 : 5} className="grid">
                   {rows.map((r) => (
                     <ListingCard key={r.id} row={r} kind={kind} english={en} t={t} onOpen={()=>open(r)}/>
 
                   ))}
                 </Grid>}
-                {!busy && !rows.length && <Text as="p">{t("empty")}</Text>}
+                {!admin && !busy && !rows.length && <Text as="p">{t("empty")}</Text>}
                 {cursor && (
                   <Button label={say("加载更多", "Load more")} onClick={() => run(() => load(true))} />
                 )}
@@ -1076,7 +1087,7 @@ export default function Client({ admin = false, initialLocation = "/" }: { admin
   );
 }
 
-function Report({ type, id, t, say, run, busy, kind }: { type: string; id: string } & Pick<ComponentProps<typeof DataForm>, "t" | "say" | "run" | "busy" | "kind">) {
+function Report({ type, id, t, say, run, busy, kind }: { type: string; id: string } & Pick<ComponentProps<typeof DataFormComponent>, "t" | "say" | "run" | "busy" | "kind">) {
     return (
       <Collapsible defaultIsOpen={false} trigger={say("举报", "Report")}>
 

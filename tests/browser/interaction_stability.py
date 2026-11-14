@@ -106,18 +106,14 @@ def public_checks(browser, width, failures):
                   "DELETE", "/favorites/item-0", selectors, failures)
 
     if not mobile:
-        category = page.get_by_role("combobox", name="分类", exact=True)
-        page.evaluate(START_SAMPLING, selectors)
-        category.click()
-        expect(page.get_by_role("option", name="书籍", exact=True)).to_be_visible()
-        finish_sampling(page, f"{width}: open selector", failures)
-        # CDP scrollIntoView on a top-layer option can scroll its underlying
-        # document even though it is visible. Use a real pointer at its bounds.
-        option = page.get_by_role("option", name="书籍", exact=True).bounding_box()
-        request_check(page, fixture, f"{width}: select category", lambda: page.mouse.click(option["x"] + option["width"] / 2, option["y"] + option["height"] / 2),
+        category = page.locator(".category-nav").get_by_role("button", name="书籍", exact=True)
+        request_check(page, fixture, f"{width}: select category", category.click,
                       "GET", "/items", selectors, failures)
+        expect(category).to_have_attribute("aria-pressed", "true")
+        page.get_by_role("button", name="筛选", exact=True).click()
         request_check(page, fixture, f"{width}: apply filters", lambda: page.get_by_role("button", name="应用筛选", exact=True).click(),
                       "GET", "/items", selectors, failures)
+        page.get_by_role("button", name="筛选", exact=True).click()
         request_check(page, fixture, f"{width}: clear filters", lambda: page.get_by_role("button", name="清空", exact=True).click(),
                       "GET", "/items", selectors, failures)
 
@@ -165,8 +161,7 @@ def retry_checks(browser, width, failures):
             route.fulfill(status=503, json={"error": {"code": "UNAVAILABLE", "message": "Temporary fixture failure"}})
 
     fixture.hold = ("GET", "/api/v1/items")
-    if width < 768:
-        page.get_by_role("button", name="筛选", exact=True).click()
+    page.get_by_role("button", name="筛选", exact=True).click()
     page.get_by_role("button", name="应用筛选", exact=True).click()
     indicator = page.get_by_role("progressbar", name="加载中…", exact=True)
     expect(indicator).to_be_visible()
@@ -174,11 +169,9 @@ def retry_checks(browser, width, failures):
     banner = page.get_by_role("alert").filter(has_text="服务暂不可用，请稍后重试")
     expect(banner).to_be_visible()
     expect(indicator).not_to_be_visible()
-    if width < 768:
-        expect(page.get_by_role("dialog", name="筛选", exact=True)).not_to_be_visible()
-        # The sheet can already be transparent while its modal exit still
-        # owns pointer input and the document scroll lock.
-        page.wait_for_function("!document.querySelector('dialog[open]') && getComputedStyle(document.documentElement).overflowY !== 'hidden'")
+    expect(page.get_by_role("dialog", name="筛选", exact=True)).not_to_be_visible()
+    # Wait until the exiting filter surface releases native modal input.
+    page.wait_for_function("!document.querySelector('dialog[open]') && getComputedStyle(document.documentElement).overflowY !== 'hidden'")
 
     fixture.hold = ("GET", "/api/v1/items")
     retry_button = page.get_by_role("button", name="重试", exact=True)

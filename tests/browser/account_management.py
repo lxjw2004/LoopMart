@@ -103,7 +103,7 @@ def account_page(page, path="/account/listings"):
 
 
 def assert_header(page, english=False, signed_in=True):
-    tabs = page.locator(".subnav nav").get_by_role("link")
+    tabs = page.get_by_role("navigation", name="Main navigation" if english else "主导航", exact=True).filter(visible=True).get_by_role("link")
     expect(tabs).to_have_count(2)
     expect(tabs).to_have_text(["Market", "Rides"] if english else ["市场", "拼车"])
     account_label = ("Account" if english else "我的") if signed_in else ("Sign in" if english else "登录")
@@ -112,7 +112,7 @@ def assert_header(page, english=False, signed_in=True):
 
 def assert_selected(control):
     expect(control).to_have_attribute("aria-current", re.compile(r"^(?:page|true|location)$"))
-    expect(control).to_have_css("background-color", "rgb(237, 242, 255)")
+    expect(control).to_have_css("background-color", "rgb(255, 240, 233)")
 
 
 def assert_panel(page, selected):
@@ -168,7 +168,7 @@ def assert_tab_panels(page):
         expect(panel).to_be_visible()
     selected = page.locator('.account-posts [role="tab"][aria-selected="true"]')
     expect(selected).to_have_count(1)
-    expect(selected).to_have_css("color", "rgb(38, 89, 236)")
+    expect(selected).to_have_css("color", "rgb(207, 63, 35)")
 
 
 def select_status(page, value, label):
@@ -195,7 +195,7 @@ def layout(page, fixture):
             account_page(page)
             if english and page.get_by_role("button", name="EN", exact=True).count():
                 page.get_by_role("button", name="EN", exact=True).click()
-            expect(page.get_by_role("heading", level=1, name="My posts" if english else "我的发布", exact=True)).to_be_visible()
+            expect(page.get_by_role("heading", level=1, name="Account" if english else "账户中心", exact=True)).to_be_visible()
             assert_panel(page, "posts")
             assert_header(page, english=english)
             nav, content = page.locator(".account-nav"), page.locator(".account-content")
@@ -391,7 +391,7 @@ def favorites(page, fixture):
     expect(owner_posts.get_by_label("搜索", exact=True)).to_have_value("Indianapolis")
     expect(owner_posts.get_by_role("combobox", name="状态", exact=True)).to_have_text("上架中")
     expect(owner_posts.locator(".listing-card")).to_have_count(1)
-    expect(owner_posts.get_by_text(RIDE["origin"], exact=True)).to_be_visible()
+    expect(owner_posts.get_by_role("heading", name=f'{RIDE["origin"]} → {RIDE["destination"]}', exact=True)).to_be_visible()
     assert len([entry for entry in fixture.reads if entry[0] == "/me/rides"]) == owner_reads, "Returning from a favorite item detail must restore the cached owner ride list"
     select_panel(page, "favorites")
     for _ in range(2):

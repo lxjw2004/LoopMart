@@ -64,7 +64,7 @@ function Posts({
       <Spinner aria-label={t("loading")}/>
     </VStack>}
     {Boolean(error) && <Banner status="error" role="alert" title={errorText(error,english)} endContent={<Button label={t("retry")} onClick={()=>load()}/>}/>}
-    <Grid columns={desktop?3:kind==="rides"&&mobile?1:2} gap={mobile?3:5}>
+    <Grid columns={kind==="rides"?1:desktop?3:2} gap={mobile?3:5}>
       {busy&&!rows.length&&Array.from({length:desktop?3:kind==="rides"&&mobile?1:2},(_,index)=><Skeleton key={"skeleton-"+index} height="calc(var(--spacing-12) * 4)" index={index}/>)}
       {rows.map(row=><ListingCard key={row.id} row={row} kind={kind} english={english} t={t} onOpen={()=>onOpen(kind,row)}/>)}
     </Grid>

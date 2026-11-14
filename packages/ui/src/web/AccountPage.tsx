@@ -127,7 +127,7 @@ export default function AccountPage({selected, onTabChange, me, english, t, prof
               </VStack>
               <Button label={t('search')} type="submit" variant="primary" isLoading={busy} />
             </HStack>
-            {(rows.length > 0 || busy) && <Grid columns={mobile ? kind === 'rides' ? 1 : 2 : desktop ? 3 : 2} gap={mobile ? 3 : 5}>
+            {(rows.length > 0 || busy) && <Grid columns={kind === 'rides' ? 1 : desktop ? 3 : 2} gap={mobile ? 3 : 5}>
               {busy && !rows.length && Array.from({length: desktop ? 3 : 2}, (_, index) => <Skeleton key={index} height="calc(var(--spacing-12) * 4)" index={index} />)}
               {rows.map(row => <ListingCard key={row.id} row={row} kind={kind} english={english} t={t} onOpen={() => onOpen(row)} />)}
             </Grid>}

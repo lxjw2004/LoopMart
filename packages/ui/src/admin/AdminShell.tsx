@@ -4,18 +4,17 @@ import { AppShell } from "@astryxdesign/core/AppShell";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Button } from "@astryxdesign/core/Button";
 import { Divider } from "@astryxdesign/core/Divider";
-import { SideNav, SideNavHeading, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav";
+import { SideNav, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
-import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
+import { TopNav } from "@astryxdesign/core/TopNav";
 import { routeHref } from "../navigation";
 import { useLayout } from "../shared/design";
+import Brand from "../shared/Brand";
+import { navigationIcons } from "../shared/NavigationIcon";
 
-const pages = ["overview", "users", "items", "rides", "conversations", "reports", "community-messages", "contact", "settings", "audit"];
-const navigationMarks = pages.map((_, index) => function NavigationMark() {
-  return <Text type="admin-nav-index" aria-hidden="true" hasTabularNumbers>{String(index + 1).padStart(2, "0")}</Text>;
-});
+const pages = ["overview", "users", "items", "rides", "conversations", "reports", "community-messages", "contact", "settings", "audit"] as const;
 const names: Record<string, [string, string]> = { login: ["账户", "Account"], overview: ["总览", "Overview"], users: ["用户", "Users"], items: ["商品", "Items"], rides: ["拼车", "Rides"], conversations: ["会话", "Conversations"], reports: ["举报", "Reports"], "community-messages": ["社区消息", "Community messages"], contact: ["联系表单", "Contact"], settings: ["设置", "Settings"], audit: ["审计日志", "Audit log"] };
 export interface AdminShellProps { children: ReactNode; page: string; onNavigate: (page: string) => void; me?: { name?: string; role?: string } | null; english?: boolean; onLanguageChange?: () => void; onLogout?: () => void; t?: (key: string) => string }
 
@@ -33,13 +32,13 @@ export default function AdminShell({ children, page, onNavigate, me, english = f
       className="admin-shell"
       contentPadding={0}
       mobileNav={{ hasToggle: true, isOpen: expanded, onOpenChange: setExpanded }}
-      topNav={<TopNav label={english ? "Application navigation" : "应用导航"} style={{ minHeight: "calc(var(--size-element-md) + var(--spacing-4))" }} heading={<TopNavHeading heading="LoopMart" headingHref={routeHref("overview", true)} headerEndContent={brand} />} />}
+      topNav={<TopNav label={english ? "Application navigation" : "应用导航"} style={{ minHeight: "calc(var(--size-element-md) + var(--spacing-4))" }} heading={<HStack gap={2} vAlign="center"><Brand href={routeHref("overview", true)} compact />{brand}</HStack>} />}
       sideNav={
         <SideNav
           aria-label={navigationLabel}
           className="admin-sidebar"
           style={{ width: "var(--lm-admin-sidebar-width)", maxWidth: "100%" }}
-          header={<VStack style={{ paddingBlockStart: mobile ? 0 : "var(--spacing-5)", paddingBlockEnd: "var(--spacing-4)", paddingInline: "var(--spacing-3)" }}><SideNavHeading className="admin-brand" style={{ minHeight: "calc(var(--spacing-8) + var(--border-width))" }} heading="LoopMart" headingHref={routeHref("overview", true)} headerEndContent={brand} /></VStack>}
+          header={<VStack style={{ paddingBlockStart: mobile ? 0 : "var(--spacing-5)", paddingBlockEnd: "var(--spacing-4)", paddingInline: "var(--spacing-3)" }}><HStack className="admin-brand" gap={2} vAlign="center" style={{ minHeight: "calc(var(--spacing-8) + var(--border-width))" }}><Brand href={routeHref("overview", true)} compact />{brand}</HStack></VStack>}
           footer={
             <VStack gap={5}><Divider /><HStack gap={2} wrap="wrap" vAlign="center" data-testid="admin-account">
               <Avatar name={me?.name || "LoopMart"} size="sm" tooltip={false} />
@@ -49,11 +48,11 @@ export default function AdminShell({ children, page, onNavigate, me, english = f
           }
         >
           <SideNavSection title={navigationLabel} isHeaderHidden style={{ paddingInline: "var(--spacing-2)" }}>
-            {pages.map((key, index) => (
+            {pages.map(key => (
               <SideNavItem
                 key={key}
                 label={label(key)}
-                icon={navigationMarks[index]}
+                icon={navigationIcons[key]}
                 style={{ minHeight: mobile ? "var(--size-element-md)" : "calc(var(--spacing-10) - var(--border-width))", paddingInline: "var(--spacing-3)", marginBlockEnd: "var(--spacing-0-5)" }}
                 href={routeHref(key, true)}
                 isSelected={page === key}

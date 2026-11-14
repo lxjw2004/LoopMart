@@ -6,6 +6,7 @@ dist/
 
 .next/
 .superpowers/
+.impeccable/review/
 playwright-report/
 test-results/
 

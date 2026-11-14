@@ -4,6 +4,7 @@ import { Section } from "@astryxdesign/core/Section";
 import { Grid } from "@astryxdesign/core/Grid";
 import { useLayout } from "./shared/design";
 import { Banner } from "@astryxdesign/core/Banner";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
 import { DateTimeInput, type ISODateTimeString } from "@astryxdesign/core/DateTimeInput";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
@@ -20,18 +21,19 @@ type Row = Record<string, any>;
 type Fields = Record<string, string | string[]>;
 const money = (name: string) => name === "priceCents" || name === "feeCents";
 const normalize = (data: Row) => Object.fromEntries(Object.entries(data).map(([k, v]) => [k, money(k) && v !== undefined && v !== null ? centsToDollars(Number(v)) : v]));
-export default function DataForm({fields, initial = {}, submit, draft = false, t, say, run, busy, kind, ownerId, submitLabel, groups, renderSummary, saveDraft = false, submitFullWidth = false, embedded = false, successMessage}: {
+export default function DataForm({fields, initial = {}, submit, draft = false, t, say, run, busy, kind, ownerId, submitLabel, groups, renderSummary, saveDraft = false, submitFullWidth = false, embedded = false, successMessage, authMode}: {
   fields: Fields; initial?: Row; submit: (v: Row) => Promise<any>; draft?: boolean;
   t: (s: string) => string; say: (zh: string, en: string) => string;
   run: (f: () => Promise<any>) => Promise<any>; busy: boolean; kind: string; ownerId?: string;
   submitLabel?: string; groups?: {title: string; fields: string[]}[];
-  renderSummary?: (values: Row) => ReactNode; saveDraft?: boolean; submitFullWidth?: boolean; embedded?: boolean; successMessage?: string;
+  renderSummary?: (values: Row) => ReactNode; saveDraft?: boolean; submitFullWidth?: boolean; embedded?: boolean; successMessage?: string; authMode?: string;
 }) {
   const { mobile } = useLayout();
   const [notice, setNotice] = useState("");
   const sectionId = useId();
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
   const lock = useRef(false);
   const key = draft && ownerId ? "loopmart-draft-" + ownerId + "-" + kind : null;
   const [values, setValues] = useState<Row>(normalize(initial));
@@ -43,7 +45,7 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
       try { next = restoreDraft(localStorage.getItem(key), fields, defaults); }
       catch { setNotice(say("草稿保存不可用", "Draft storage unavailable")); }
     }
-    setValues(next); setError("");
+    setValues(next); setError(""); setDiscardOpen(false);
   }, [key, kind, ownerId, initialJSON]);
   const store = (next: Row) => {
     if (!key) return false;
@@ -54,6 +56,19 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
     const next = {...values, [name]:value}; setValues(next); setNotice(""); store(next);
   };
   const disabled = busy || submitting;
+  const discard = () => {
+    if (disabled) return;
+    try { if (key) localStorage.removeItem(key); }
+    catch { setError(say("草稿清除失败", "Draft could not be cleared")); setNotice(""); setDiscardOpen(false); return; }
+    setValues(normalize(initial)); setError(""); setNotice(""); setDiscardOpen(false);
+  };
+  const autoComplete = (name: string) => {
+    if (!authMode) return undefined;
+    if (name === "email" || name === "name") return name;
+    if (name === "currentPassword" || (name === "password" && authMode === "sign-in/email")) return "current-password";
+    if (name === "newPassword" || name === "password") return "new-password";
+    return undefined;
+  };
   const renderControl = (name: string) => {
     const type = fields[name];
     if (!type) return null;
@@ -71,6 +86,7 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
       value={String(values[name] ?? "")} onChange={value => update(name, value)} />;
     return <TextInput key={name} {...common} htmlName={name}
       type={type === "number" ? "text" : type as "text" | "email" | "password"}
+      autoComplete={autoComplete(name)}
       inputMode={money(name) ? "decimal" : type === "number" ? "numeric" : undefined}
       value={String(values[name] ?? "")} onChange={value => update(name, value)} />;
   };
@@ -121,10 +137,15 @@ export default function DataForm({fields, initial = {}, submit, draft = false, t
           style={renderSummary && mobile ? {position:"fixed",insetInline:0,bottom:"calc(var(--lm-mobile-nav-height) + env(safe-area-inset-bottom))",zIndex:21,background:"var(--color-background-surface)",borderTop:"var(--border-width) solid var(--color-border)",padding:"var(--spacing-3) var(--lm-page-gutter)"} : undefined}>
           {draft && saveDraft && <Button label={say("保存草稿", "Save draft")} width={renderSummary && mobile ? "calc(50% - var(--spacing-1))" : undefined} isDisabled={disabled || !key} onClick={() => {if(store(values)) setNotice(say("草稿已保存", "Draft saved"));}} />}
           <Button label={submitLabel || t("save")} width={submitFullWidth || (renderSummary && mobile && !(draft && saveDraft)) ? "100%" : renderSummary && mobile ? "calc(50% - var(--spacing-1))" : undefined} className="form-submit" variant="primary" type="submit" isLoading={submitting} isDisabled={disabled} />
-          {draft && <Button label={say("丢弃草稿", "Discard draft")} width={renderSummary && mobile ? "100%" : undefined} variant="ghost" size="sm" isDisabled={disabled} onClick={() => {if(key) {try {localStorage.removeItem(key);} catch {setNotice(say("草稿清除失败", "Draft could not be cleared"));}} setValues(normalize(initial));}} />}
+          {draft && <Button label={say("丢弃草稿", "Discard draft")} width={renderSummary && mobile ? "100%" : undefined} variant="ghost" size="sm" isDisabled={disabled} onClick={() => setDiscardOpen(true)} />}
         </HStack>
       </VStack>
     </Grid>
   </VStack>;
-  return renderSummary || embedded ? form : <Section variant="form-panel" width="100%" maxWidth="var(--lm-form-max)">{form}</Section>;
+  return <>
+    {renderSummary || embedded ? form : <Section variant="form-panel" width="100%" maxWidth="var(--lm-form-max)">{form}</Section>}
+    {draft && <AlertDialog isOpen={discardOpen} onOpenChange={setDiscardOpen}
+      title={say("丢弃草稿？", "Discard draft?")} description={say("此操作会清空当前草稿。", "This clears the current draft.")}
+      actionLabel={say("丢弃", "Discard")} cancelLabel={say("取消", "Cancel")} onAction={discard} />}
+  </>;
 }
